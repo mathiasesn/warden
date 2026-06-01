@@ -98,8 +98,8 @@ fn draw_agent_list(frame: &mut Frame, app: &App, area: Rect) {
             ));
 
             let task_preview: String = agent.task.chars().take(22).collect();
-            let task_preview = if agent.task.len() > 22 {
-                format!("{}…", task_preview)
+            let task_preview = if agent.task.chars().count() > 22 {
+                format!("{task_preview}…")
             } else {
                 task_preview
             };
@@ -214,7 +214,8 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
     // Scroll position badge
     if total > height {
         let badge = format!(" {}/{} ↕ ", scroll + 1, total);
-        let bw = badge.len() as u16;
+        // Width in terminal columns, not bytes — `↕` is multi-byte but one cell.
+        let bw = badge.chars().count() as u16;
         let badge_area = Rect {
             x: area.right().saturating_sub(bw + 1),
             y: area.bottom().saturating_sub(1),

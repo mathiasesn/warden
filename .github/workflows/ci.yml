@@ -30,5 +30,5 @@ jobs:
       - name: Clippy (lint)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Build & test (release)
-        run: cargo test --release --all-features
+      - name: Build & test
+        run: cargo test --all-features

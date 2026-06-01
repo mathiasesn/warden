@@ -145,6 +145,13 @@ impl App {
         }
     }
 
+    /// Persist state and return to normal mode — the common tail of every
+    /// modal that commits a change.
+    fn save_and_close(&mut self) {
+        self.save();
+        self.mode = AppMode::Normal;
+    }
+
     pub fn selected_agent(&self) -> Option<&Agent> {
         self.agents.get(self.selected)
     }
@@ -273,9 +280,8 @@ impl App {
                     self.agents.push(agent);
                     self.selected = self.agents.len() - 1;
                     self.log_scroll = 0;
-                    self.save();
+                    self.save_and_close();
                     self.status_msg = format!("Agent '{name}' added.");
-                    self.mode = AppMode::Normal;
                 }
             }
 
@@ -327,8 +333,7 @@ impl App {
             if let Some(a) = self.selected_agent_mut() {
                 a.set_status(status);
             }
-            self.save();
-            self.mode = AppMode::Normal;
+            self.save_and_close();
         }
     }
 
@@ -352,8 +357,7 @@ impl App {
                     a.add_log(level, msg);
                     self.log_scroll = a.logs.len().saturating_sub(1);
                 }
-                self.save();
-                self.mode = AppMode::Normal;
+                self.save_and_close();
             }
             KeyCode::Backspace => {
                 self.log_input.pop();

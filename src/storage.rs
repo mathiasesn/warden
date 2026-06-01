@@ -2,18 +2,21 @@ use crate::agent::Agent;
 use std::fs;
 use std::path::PathBuf;
 
+/// Resolves the path to the on-disk store. Pure: it does not touch the
+/// filesystem — `save` is responsible for creating the parent directory.
 fn data_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-    let dir = home.join(".warden");
-    fs::create_dir_all(&dir).ok();
-    dir.join("agents.json")
+    home.join(".warden").join("agents.json")
 }
 
 pub fn save(agents: &[Agent]) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let path = data_path();
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
     let json = serde_json::to_string_pretty(agents)?;
     fs::write(&path, json)?;
     Ok(path)
@@ -121,10 +124,19 @@ mod tests {
     }
 
     #[test]
-    fn data_path_points_into_warden_dir_and_creates_it() {
+    fn data_path_points_into_warden_dir_without_side_effects() {
         let _h = TempHome::new();
         let p = data_path();
         assert!(p.ends_with("agents.json"));
-        assert!(p.parent().unwrap().is_dir());
+        assert!(p.parent().unwrap().ends_with(".warden"));
+        // data_path is pure — resolving it must not create anything on disk.
+        assert!(!p.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn save_creates_warden_dir() {
+        let _h = TempHome::new();
+        save(&[]).unwrap();
+        assert!(data_path().parent().unwrap().is_dir());
     }
 }

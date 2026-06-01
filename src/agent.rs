@@ -1,12 +1,17 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn gen_id() -> String {
+    // Timestamp plus a per-process counter so IDs stay unique even when several
+    // agents are created within the same nanosecond.
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
     let t = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    format!("{:x}{:08x}", t.as_secs(), t.subsec_nanos())
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{:x}{:08x}{:04x}", t.as_secs(), t.subsec_nanos(), n)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -152,8 +157,11 @@ mod tests {
     }
 
     #[test]
-    fn gen_id_is_nonempty() {
-        assert!(!gen_id().is_empty());
+    fn gen_id_is_nonempty_and_unique() {
+        let a = gen_id();
+        let b = gen_id();
+        assert!(!a.is_empty());
+        assert_ne!(a, b, "consecutive ids must differ");
     }
 
     #[test]
