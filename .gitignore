@@ -1,0 +1,13 @@
+# Rust / Cargo
+/target
+debug/
+
+# rustfmt / clippy --fix backups
+**/*.rs.bk
+
+# MSVC debugging info
+*.pdb
+
+# Cursor
+.cursor/
+.cursorindexingignore
