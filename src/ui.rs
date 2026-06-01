@@ -31,6 +31,20 @@ fn log_level_color(l: &LogLevel) -> Color {
     }
 }
 
+/// Braille spinner frames for actively-running agents.
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// The last `max` characters of `s` (counted by char, not byte), so streamed
+/// output keeps its newest tokens on screen instead of running off the edge.
+fn tail_chars(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        s.to_string()
+    } else {
+        s.chars().skip(count - max).collect()
+    }
+}
+
 // ─── Root draw ────────────────────────────────────────────────────────────────
 
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -92,8 +106,14 @@ fn draw_agent_list(frame: &mut Frame, app: &App, area: Rect) {
             let is_sel = i == app.selected;
             let sel_marker = if is_sel && focused { "▶" } else { " " };
 
+            // A spinner replaces the static symbol while a run is live.
+            let symbol = if app.is_running(&agent.id) {
+                SPINNER[app.frame % SPINNER.len()]
+            } else {
+                agent.status.symbol()
+            };
             let status_cell = Cell::from(Span::styled(
-                format!("{} {}", agent.status.symbol(), agent.status.label()),
+                format!("{} {}", symbol, agent.status.label()),
                 Style::default().fg(status_color(&agent.status)).bold(),
             ));
 
@@ -174,8 +194,9 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
     let Some(agent) = app.selected_agent() else {
         return;
     };
+    let running = app.is_running(&agent.id);
 
-    if agent.logs.is_empty() {
+    if agent.logs.is_empty() && agent.partial.is_empty() {
         frame.render_widget(
             Paragraph::new("No log entries yet.")
                 .style(Style::default().fg(C_DIM))
@@ -185,15 +206,10 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    let total = agent.logs.len();
-    let height = inner.height as usize;
-    let scroll = app.log_scroll.min(total.saturating_sub(1));
-
-    let lines: Vec<Line> = agent
+    // Committed log entries, one line each.
+    let mut lines: Vec<Line> = agent
         .logs
         .iter()
-        .skip(scroll)
-        .take(height)
         .map(|entry| {
             let ts = entry.timestamp.format("%H:%M:%S").to_string();
             let lvl = entry.level.label();
@@ -209,11 +225,38 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    frame.render_widget(Paragraph::new(lines), inner);
+    // In-flight streamed output for a running agent: a spinner, the tail of the
+    // text so far, and a cursor block.
+    if running && !agent.partial.is_empty() {
+        let spin = SPINNER[app.frame % SPINNER.len()];
+        let budget = (inner.width as usize).saturating_sub(4);
+        let tail = tail_chars(&agent.partial, budget);
+        lines.push(Line::from(vec![
+            Span::styled(spin, Style::default().fg(C_ACCENT)),
+            Span::raw(" "),
+            Span::styled(tail, Style::default().fg(C_ACCENT).italic()),
+            Span::styled("▌", Style::default().fg(C_ACCENT)),
+        ]));
+    }
 
-    // Scroll position badge
+    let total = lines.len();
+    let height = (inner.height as usize).max(1);
+
+    // While a run streams and the user isn't manually scrolling the log pane,
+    // follow the tail; otherwise honour their scroll position.
+    let top = if running && !focused {
+        total.saturating_sub(height)
+    } else {
+        app.log_scroll.min(total.saturating_sub(1))
+    };
+
+    let visible: Vec<Line> = lines.into_iter().skip(top).take(height).collect();
+    frame.render_widget(Paragraph::new(visible), inner);
+
+    // Scroll position badge — shows the bottom-most visible row.
     if total > height {
-        let badge = format!(" {}/{} ↕ ", scroll + 1, total);
+        let shown = (top + height).min(total);
+        let badge = format!(" {}/{} ↕ ", shown, total);
         // Width in terminal columns, not bytes — `↕` is multi-byte but one cell.
         let bw = badge.chars().count() as u16;
         let badge_area = Rect {
@@ -239,7 +282,9 @@ fn draw_key_bar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let hints = match app.focus {
-        Focus::AgentList => "  [a]dd  [d]el  [s]tatus  [l]og  [S]ave  [Tab]switch  [q]uit",
+        Focus::AgentList => {
+            "  [a]dd  [d]el  [s]tatus  [l]og  [r]un  [x]stop  [S]ave  [Tab]switch  [q]uit"
+        }
         Focus::LogViewer => "  [j/k]scroll  [g/G]top/bot  [Tab]switch  [q]quit",
     };
 
@@ -584,5 +629,36 @@ mod tests {
         let mut app = sample_app();
         app.mode = AppMode::AddAgent;
         assert!(render(&app).contains("Add New Agent"));
+    }
+
+    #[test]
+    fn tail_chars_keeps_the_end_and_passes_short_strings_through() {
+        assert_eq!(tail_chars("hello", 10), "hello");
+        assert_eq!(tail_chars("hello world", 5), "world");
+        assert_eq!(tail_chars("hi", 0), "");
+        // counts by char, not byte — multi-byte chars stay intact
+        assert_eq!(tail_chars("aé⠿z", 2), "⠿z");
+    }
+
+    #[tokio::test]
+    async fn draw_renders_live_partial_for_running_agent() {
+        let mut app = sample_app();
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.agents[0].partial = "streaming tokens here".into();
+        app.selected = 0;
+        let text = render(&app);
+        assert!(text.contains("streaming tokens here"));
+        // the live cursor is drawn after the streamed text
+        assert!(text.contains('▌'));
+    }
+
+    #[tokio::test]
+    async fn idle_agent_shows_no_live_partial() {
+        // partial without a tracked run must not render (it's stale state).
+        let mut app = sample_app();
+        app.agents[0].partial = "should not show".into();
+        app.selected = 0;
+        assert!(!render(&app).contains("should not show"));
     }
 }

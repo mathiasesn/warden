@@ -87,6 +87,14 @@ pub struct Agent {
     pub status: AgentStatus,
     pub logs: Vec<LogEntry>,
     pub created_at: DateTime<Utc>,
+    /// Tokens reported by the most recent run. `default` so saves written
+    /// before this field existed still load.
+    #[serde(default)]
+    pub tokens_used: u32,
+    /// In-flight streamed output while a run is active. Never persisted; on
+    /// completion it is flushed into a log entry.
+    #[serde(skip)]
+    pub partial: String,
 }
 
 impl Agent {
@@ -102,6 +110,8 @@ impl Agent {
             status: AgentStatus::Idle,
             logs: Vec::new(),
             created_at: Utc::now(),
+            tokens_used: 0,
+            partial: String::new(),
         };
         agent.logs.push(LogEntry::new(
             LogLevel::Info,

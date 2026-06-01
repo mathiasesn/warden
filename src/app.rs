@@ -1,6 +1,11 @@
 use crate::agent::{Agent, AgentStatus, LogLevel};
+use crate::event::{AgentEvent, Event};
+use crate::runner::{Backend, MockBackend, RunSpec};
 use crate::storage;
 use crossterm::event::{KeyCode, KeyEvent};
+use std::collections::HashMap;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::JoinHandle;
 
 #[derive(Debug, PartialEq)]
 pub enum AppMode {
@@ -58,6 +63,17 @@ pub struct App {
     // Log entry modal
     pub log_input: String,
     pub log_level: u8, // 0=Info 1=Warn 2=Error 3=Debug
+    /// Live agent-runner tasks, keyed by agent id. Not part of saved state;
+    /// used to dedupe runs, abort on stop, and gate out late events.
+    runs: HashMap<String, JoinHandle<()>>,
+    /// Channel for spawning runs from key handlers. `None` in tests/headless,
+    /// where `r`/`x` become no-ops.
+    tx: Option<UnboundedSender<Event>>,
+    /// Monotonically increasing animation frame, advanced on each timer tick.
+    pub frame: usize,
+    /// Execution backend behind `r`. Defaults to the mock; replaced at startup
+    /// with a real one when an API key is configured.
+    backend: Box<dyn Backend>,
 }
 
 impl App {
@@ -73,6 +89,10 @@ impl App {
             status_msg: String::new(),
             log_input: String::new(),
             log_level: 0,
+            runs: HashMap::new(),
+            tx: None,
+            frame: 0,
+            backend: Box::new(MockBackend),
         }
     }
 
@@ -80,7 +100,28 @@ impl App {
         match storage::load() {
             Ok(agents) => {
                 self.agents = agents;
-                self.status_msg = format!("Loaded {} agent(s) from disk.", self.agents.len());
+                // A run cannot survive a restart, so an agent persisted as
+                // RUNNING is stale (e.g. the process was killed mid-run). Reset
+                // it to Idle so the displayed state matches reality.
+                let mut recovered = 0;
+                for a in &mut self.agents {
+                    if a.status == AgentStatus::Running {
+                        a.add_log(
+                            LogLevel::Warning,
+                            "Was running at last save; reset to idle.",
+                        );
+                        a.status = AgentStatus::Idle;
+                        recovered += 1;
+                    }
+                }
+                self.status_msg = if recovered > 0 {
+                    format!(
+                        "Loaded {} agent(s); reset {recovered} stale running.",
+                        self.agents.len()
+                    )
+                } else {
+                    format!("Loaded {} agent(s) from disk.", self.agents.len())
+                };
             }
             Err(_) => {
                 // Seed with demo data on first run
@@ -152,6 +193,158 @@ impl App {
         self.mode = AppMode::Normal;
     }
 
+    /// Wire up the channel used to launch background runs. Called once at
+    /// startup; left `None` in tests so `r`/`x` stay inert.
+    pub fn set_event_sender(&mut self, tx: UnboundedSender<Event>) {
+        self.tx = Some(tx);
+    }
+
+    /// Replace the execution backend (e.g. with a real LLM backend once an API
+    /// key is known). Defaults to the mock otherwise.
+    pub fn set_backend(&mut self, backend: Box<dyn Backend>) {
+        self.backend = backend;
+    }
+
+    /// Launch a background run for the selected agent. No-op if there is no
+    /// sender (tests), no selection, or a run is already in flight.
+    fn run_selected(&mut self) {
+        let Some(tx) = self.tx.clone() else {
+            return;
+        };
+        let (id, name, model, task) = match self.agents.get(self.selected) {
+            Some(a) => (
+                a.id.clone(),
+                a.name.clone(),
+                a.model.clone(),
+                a.task.clone(),
+            ),
+            None => return,
+        };
+        if self.runs.contains_key(&id) {
+            self.status_msg = format!("'{name}' is already running.");
+            return;
+        }
+        let handle = self.backend.spawn(
+            RunSpec {
+                id: id.clone(),
+                model,
+                task,
+            },
+            tx,
+        );
+        self.runs.insert(id, handle);
+        self.status_msg = format!("Running '{name}'…");
+    }
+
+    /// Stop the selected agent's run, if any. Aborting the task and dropping it
+    /// from `runs` makes `apply_agent_event` discard events still in flight.
+    fn stop_selected(&mut self) {
+        let id = match self.agents.get(self.selected) {
+            Some(a) => a.id.clone(),
+            None => return,
+        };
+        if let Some(handle) = self.runs.remove(&id) {
+            handle.abort();
+            if let Some(a) = self.agents.get_mut(self.selected) {
+                a.partial.clear();
+                a.add_log(LogLevel::Warning, "Run stopped by user.");
+                a.set_status(AgentStatus::Idle);
+                self.log_scroll = a.logs.len().saturating_sub(1);
+            }
+            self.status_msg = "Run stopped.".into();
+        }
+    }
+
+    /// Abort every in-flight run and reset its agent to Idle. Called on quit so
+    /// the persisted state never claims an agent is running when it isn't.
+    fn abort_all_runs(&mut self) {
+        let running: Vec<String> = self.runs.keys().cloned().collect();
+        for (_, handle) in self.runs.drain() {
+            handle.abort();
+        }
+        for id in &running {
+            if let Some(a) = self.agents.iter_mut().find(|a| &a.id == id) {
+                a.partial.clear();
+                if a.status == AgentStatus::Running {
+                    a.add_log(LogLevel::Warning, "Run interrupted on quit; reset to idle.");
+                    a.status = AgentStatus::Idle;
+                }
+            }
+        }
+    }
+
+    /// Apply an event from a background runner. Routed by agent **id**, never
+    /// by selection index — the list can be reordered or the agent deleted
+    /// while a run is in flight. Events for a run that is no longer tracked
+    /// (stopped, or already finished) are ignored.
+    pub fn apply_agent_event(&mut self, id: &str, kind: AgentEvent) {
+        if !self.runs.contains_key(id) {
+            return;
+        }
+        let Some(agent) = self.agents.iter_mut().find(|a| a.id == id) else {
+            // Agent was deleted mid-run; drop the orphaned handle.
+            self.runs.remove(id);
+            return;
+        };
+        let done = match kind {
+            AgentEvent::Started => {
+                agent.set_status(AgentStatus::Running);
+                false
+            }
+            AgentEvent::Log(level, msg) => {
+                agent.add_log(level, msg);
+                false
+            }
+            AgentEvent::Token(delta) => {
+                agent.partial.push_str(&delta);
+                false
+            }
+            AgentEvent::Finished { tokens_used } => {
+                let text = std::mem::take(&mut agent.partial);
+                let text = text.trim();
+                if !text.is_empty() {
+                    agent.add_log(LogLevel::Info, text.to_string());
+                }
+                agent.tokens_used = tokens_used;
+                agent.set_status(AgentStatus::Completed);
+                true
+            }
+            AgentEvent::Failed(err) => {
+                agent.partial.clear();
+                agent.add_log(LogLevel::Error, err);
+                agent.set_status(AgentStatus::Error);
+                true
+            }
+        };
+        if done {
+            self.runs.remove(id);
+            // If the user is watching this agent, pin the view to the freshly
+            // appended tail so the result stays put once streaming stops.
+            if self.selected_agent().is_some_and(|a| a.id == id) {
+                self.log_scroll = self.agents[self.selected].logs.len().saturating_sub(1);
+            }
+            self.save();
+        }
+    }
+
+    /// Whether a background run is currently tracked for this agent id. Drives
+    /// the spinner and live-output rendering — true only while a task is
+    /// actually executing, independent of the displayed status label.
+    pub fn is_running(&self, id: &str) -> bool {
+        self.runs.contains_key(id)
+    }
+
+    /// Advance the animation frame. Called on every timer tick so spinners and
+    /// streamed output animate while the user is idle.
+    pub fn on_tick(&mut self) {
+        self.frame = self.frame.wrapping_add(1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mark_running_for_test(&mut self, id: &str) {
+        self.runs.insert(id.to_string(), tokio::spawn(async {}));
+    }
+
     pub fn selected_agent(&self) -> Option<&Agent> {
         self.agents.get(self.selected)
     }
@@ -175,6 +368,7 @@ impl App {
     fn key_normal(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => {
+                self.abort_all_runs();
                 self.save();
                 self.should_quit = true;
             }
@@ -247,6 +441,14 @@ impl App {
 
             KeyCode::Char('S') => {
                 self.save();
+            }
+
+            KeyCode::Char('r') if !self.agents.is_empty() => {
+                self.run_selected();
+            }
+
+            KeyCode::Char('x') if !self.agents.is_empty() => {
+                self.stop_selected();
             }
 
             _ => {}
@@ -859,5 +1061,144 @@ mod tests {
         reader.init();
         assert!(reader.agents.iter().any(|a| a.name == "Persisted"));
         assert!(reader.status_msg.contains("Loaded"));
+    }
+
+    // ── Agent-execution event routing ─────────────────────────────────
+
+    #[tokio::test]
+    async fn started_event_sets_running() {
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.apply_agent_event(&id, AgentEvent::Started);
+        assert_eq!(app.agents[0].status, AgentStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn tokens_accumulate_then_finish_flushes_to_log() {
+        let _h = TempHome::new();
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.apply_agent_event(&id, AgentEvent::Token("hello ".into()));
+        app.apply_agent_event(&id, AgentEvent::Token("world".into()));
+        assert_eq!(app.agents[0].partial, "hello world");
+
+        app.apply_agent_event(&id, AgentEvent::Finished { tokens_used: 2 });
+        assert_eq!(app.agents[0].status, AgentStatus::Completed);
+        assert_eq!(app.agents[0].tokens_used, 2);
+        assert!(app.agents[0].partial.is_empty());
+        assert!(app.agents[0]
+            .logs
+            .iter()
+            .any(|l| l.message == "hello world"));
+        // run handle cleared on completion
+        assert!(!app.is_running(&id));
+    }
+
+    #[tokio::test]
+    async fn failed_event_sets_error_and_clears_partial() {
+        let _h = TempHome::new();
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.apply_agent_event(&id, AgentEvent::Token("partial".into()));
+        app.apply_agent_event(&id, AgentEvent::Failed("boom".into()));
+        assert_eq!(app.agents[0].status, AgentStatus::Error);
+        assert!(app.agents[0].partial.is_empty());
+        assert!(app.agents[0].logs.iter().any(|l| l.message == "boom"));
+        assert!(!app.is_running(&id));
+    }
+
+    #[tokio::test]
+    async fn events_for_untracked_run_are_ignored() {
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        // never marked running → the event must be a no-op
+        app.apply_agent_event(&id, AgentEvent::Started);
+        assert_eq!(app.agents[0].status, AgentStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn event_routes_by_id_not_index() {
+        let mut app = app_with_agents(3);
+        let id = app.agents[2].id.clone();
+        app.mark_running_for_test(&id);
+        // selection sits on a different row; routing must follow the id
+        app.selected = 0;
+        app.apply_agent_event(&id, AgentEvent::Started);
+        assert_eq!(app.agents[2].status, AgentStatus::Running);
+        assert_eq!(app.agents[0].status, AgentStatus::Idle);
+    }
+
+    #[tokio::test]
+    async fn finished_event_for_deleted_agent_clears_run() {
+        let _h = TempHome::new();
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.agents.clear();
+        app.apply_agent_event(&id, AgentEvent::Finished { tokens_used: 0 });
+        assert!(!app.is_running(&id));
+    }
+
+    #[test]
+    fn run_and_stop_keys_are_noop_without_agents() {
+        let mut app = App::new();
+        app.handle_key(ch('r'));
+        app.handle_key(ch('x'));
+        assert_eq!(app.mode, AppMode::Normal);
+        assert!(app.agents.is_empty());
+    }
+
+    // ── Stale-run reconciliation ──────────────────────────────────────
+
+    #[test]
+    fn init_resets_stale_running_status_from_disk() {
+        let _h = TempHome::new();
+        let mut writer = App::new();
+        let mut ghost = Agent::new("Ghost", "m", "t");
+        ghost.set_status(AgentStatus::Running);
+        writer.agents.push(ghost);
+        writer.save();
+
+        let mut reader = App::new();
+        reader.init();
+        let ghost = reader.agents.iter().find(|a| a.name == "Ghost").unwrap();
+        // RUNNING never survives a restart — no live run backs it.
+        assert_eq!(ghost.status, AgentStatus::Idle);
+        assert!(reader.status_msg.contains("reset"));
+    }
+
+    #[tokio::test]
+    async fn abort_all_runs_clears_handles_and_resets_status() {
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.agents[0].set_status(AgentStatus::Running);
+        app.agents[0].partial = "buffered".into();
+
+        app.abort_all_runs();
+        assert!(!app.is_running(&id));
+        assert_eq!(app.agents[0].status, AgentStatus::Idle);
+        assert!(app.agents[0].partial.is_empty());
+    }
+
+    #[tokio::test]
+    async fn quit_aborts_runs_and_persists_idle_state() {
+        let _h = TempHome::new();
+        let mut app = app_with_agents(1);
+        let id = app.agents[0].id.clone();
+        app.mark_running_for_test(&id);
+        app.agents[0].set_status(AgentStatus::Running);
+
+        app.handle_key(ch('q'));
+        assert!(app.should_quit);
+        assert!(!app.is_running(&id));
+        assert_eq!(app.agents[0].status, AgentStatus::Idle);
+
+        // The persisted file must reflect Idle, not the stale Running.
+        let reloaded = crate::storage::load().unwrap();
+        assert_eq!(reloaded[0].status, AgentStatus::Idle);
     }
 }
