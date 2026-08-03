@@ -5,8 +5,11 @@
 
 pub mod doctor;
 pub mod ingest;
+pub mod purge;
 pub mod query;
 pub mod report;
+pub mod suggest;
+pub mod watch;
 
 use std::io;
 

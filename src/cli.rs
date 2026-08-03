@@ -77,6 +77,9 @@ pub enum Command {
         /// Delete stored prompt text.
         #[arg(long)]
         prompts: bool,
+        /// Skip the confirmation prompt. Required when stdin is not a terminal.
+        #[arg(long, visible_alias = "force")]
+        yes: bool,
     },
 }
 

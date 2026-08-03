@@ -12,3 +12,4 @@ pub mod ingest;
 pub mod output;
 pub mod reports;
 pub mod store;
+pub mod suggest;

@@ -101,7 +101,8 @@ fn labels(kpis: &[Kpi]) -> String {
         .join(", ")
 }
 
-fn human_bytes(bytes: u64) -> String {
+/// Shared with `purge`, which reports the size of what it removed.
+pub(crate) fn human_bytes(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
     let mut unit = 0;

@@ -76,8 +76,17 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             warden::commands::query::run(&ctx.env(), group_by.as_deref())?;
             Ok(())
         }
-        Command::Watch { .. } | Command::Suggest { .. } | Command::Purge { .. } => {
-            Err(format!("`{}` is not implemented yet", cli.command.name()).into())
+        Command::Suggest { draft } => {
+            warden::commands::suggest::run(&ctx.env(), draft.as_deref())?;
+            Ok(())
+        }
+        Command::Watch { oneline } => {
+            warden::commands::watch::run(&ctx.env(), *oneline)?;
+            Ok(())
+        }
+        Command::Purge { prompts, yes } => {
+            warden::commands::purge::run(&ctx.env(), *prompts, *yes)?;
+            Ok(())
         }
     }
 }
