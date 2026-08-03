@@ -1,4 +1,9 @@
-# warden
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/warden-logo-white.svg">
+    <img src="assets/logo/warden-logo-black.svg" width="420" alt="warden">
+  </picture>
+</p>
 
 A terminal UI for managing and monitoring AI/LLM agents, built in Rust with [Ratatui](https://ratatui.rs).
 
