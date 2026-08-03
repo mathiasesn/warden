@@ -10,4 +10,5 @@ pub mod config;
 pub mod doctor;
 pub mod ingest;
 pub mod output;
+pub mod reports;
 pub mod store;

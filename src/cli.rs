@@ -34,6 +34,11 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub no_ingest: bool,
 
+    /// Exclude subagent (sidechain) events. They are real spend and are
+    /// included by default; excluding them understates totals.
+    #[arg(long, global = true)]
+    pub no_sidechain: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

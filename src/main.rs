@@ -6,6 +6,7 @@ use chrono::Utc;
 use clap::Parser;
 
 use warden::cli::{Cli, Command, TimeWindow};
+use warden::commands::Env;
 use warden::config::Config;
 use warden::store::StorePaths;
 
@@ -20,9 +21,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// Everything a subcommand needs, resolved once. Later phases consume these
-/// fields; nothing is wired up yet.
-#[allow(dead_code)]
+/// Everything a subcommand needs, resolved once.
 struct Context {
     config: Config,
     paths: StorePaths,
@@ -30,6 +29,22 @@ struct Context {
     project: Option<String>,
     json: bool,
     no_ingest: bool,
+    include_sidechain: bool,
+}
+
+impl Context {
+    /// The borrowed view the reporting commands take.
+    fn env(&self) -> Env<'_> {
+        Env {
+            config: &self.config,
+            paths: &self.paths,
+            window: self.window,
+            project: self.project.as_deref(),
+            json: self.json,
+            no_ingest: self.no_ingest,
+            include_sidechain: self.include_sidechain,
+        }
+    }
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
@@ -53,11 +68,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             )?;
             Ok(())
         }
-        Command::Report { .. }
-        | Command::Query { .. }
-        | Command::Watch { .. }
-        | Command::Suggest { .. }
-        | Command::Purge { .. } => {
+        Command::Report { name } => {
+            warden::commands::report::run(&ctx.env(), name)?;
+            Ok(())
+        }
+        Command::Query { group_by } => {
+            warden::commands::query::run(&ctx.env(), group_by.as_deref())?;
+            Ok(())
+        }
+        Command::Watch { .. } | Command::Suggest { .. } | Command::Purge { .. } => {
             Err(format!("`{}` is not implemented yet", cli.command.name()).into())
         }
     }
@@ -83,5 +102,6 @@ fn context(cli: &Cli) -> Result<Context, Box<dyn std::error::Error>> {
         project: cli.project.clone(),
         json: cli.json,
         no_ingest: cli.no_ingest,
+        include_sidechain: !cli.no_sidechain,
     })
 }
