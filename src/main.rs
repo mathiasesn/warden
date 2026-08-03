@@ -33,14 +33,30 @@ struct Context {
 }
 
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let _ctx = context(&cli)?;
+    let ctx = context(&cli)?;
     match &cli.command {
-        Command::Ingest
-        | Command::Report { .. }
+        Command::Ingest => {
+            warden::commands::ingest::run(
+                &ctx.config,
+                &ctx.paths,
+                ctx.window,
+                ctx.project.as_deref(),
+            )?;
+            Ok(())
+        }
+        Command::Doctor => {
+            warden::commands::doctor::run(
+                &ctx.config,
+                &ctx.paths,
+                ctx.window,
+                ctx.project.as_deref(),
+            )?;
+            Ok(())
+        }
+        Command::Report { .. }
         | Command::Query { .. }
         | Command::Watch { .. }
         | Command::Suggest { .. }
-        | Command::Doctor
         | Command::Purge { .. } => {
             Err(format!("`{}` is not implemented yet", cli.command.name()).into())
         }

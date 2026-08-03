@@ -10,7 +10,7 @@ pub mod scanner;
 pub mod writer;
 
 pub use id::{event_id, text_hash, EventIdentity};
-pub use paths::{Partition, StorePaths};
+pub use paths::{expand_tilde, Partition, StorePaths};
 pub use record::{Event, IngestCursor, PromptRecord, ToolCall, RECORD_VERSION};
 pub use scanner::{Scan, ScanQuery, ScanStats, Scanner};
 pub use writer::StoreWriter;
