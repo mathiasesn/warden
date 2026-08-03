@@ -85,33 +85,7 @@ impl Scanner {
     /// Partitions present on disk that overlap the query window, in
     /// chronological order.
     pub fn partitions_for(&self, window: TimeWindow) -> io::Result<Vec<(Partition, PathBuf)>> {
-        let dir = self.paths.events_dir();
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(entries) => entries,
-            // No store yet is an empty store, not an error.
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(err) => return Err(err),
-        };
-
-        let mut found = Vec::new();
-        for entry in entries {
-            let path = entry?.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-                continue;
-            };
-            let Some(partition) = Partition::parse_stem(stem) else {
-                continue;
-            };
-            // Half-open overlap: [start, end) against [from, to).
-            if partition.end_ms() > window.from_ms && partition.start_ms() < window.to_ms {
-                found.push((partition, path));
-            }
-        }
-        found.sort_by_key(|(partition, _)| *partition);
-        Ok(found)
+        StorePaths::partitions_in(&self.paths.events_dir(), window)
     }
 
     /// Scan the store, calling `visit` for each matching event in partition

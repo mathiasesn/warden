@@ -11,7 +11,7 @@ const UNATTRIBUTED: &str = "(no project)";
 
 pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> {
     let scanned = scan(scanner, ctx)?;
-    let by_project = rollup(&scanned.events, |event| {
+    let by_project = rollup(&scanned.events, &ctx.pricing, |event| {
         Some(
             event
                 .project
@@ -123,5 +123,54 @@ mod tests {
         assert!(rendered.contains(crate::output::UNSUPPORTED), "{rendered}");
         assert!(!rendered.contains("$0.00"), "{rendered}");
         assert!(report.json_rows[0]["cost_est"].is_null());
+        assert_eq!(report.json_rows[0]["cost_partial"], false);
+    }
+
+    /// A project mixing priced and unpriced models: the figure is real but
+    /// incomplete, so it is marked rather than printed as a bare total.
+    #[test]
+    fn a_partly_priced_project_is_marked_not_passed_off_as_a_total() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[pricing.anthropic]
+"claude-sonnet-5" = { input = 3.0, output = 15.0, cache_read = 0.3 }
+"#,
+        )
+        .unwrap();
+        let (_dir, paths) = store(&[
+            used(
+                "a",
+                ms(2026, 8, 4, 8),
+                "acme",
+                "claude-sonnet-5",
+                1_000,
+                100,
+            ),
+            used("b", ms(2026, 8, 4, 9), "acme", "claude-opus-5", 1_000, 100),
+        ]);
+        let report = build(
+            &Scanner::new(paths),
+            &ReportCtx::new(TimeWindow::all(), None, true).with_pricing(config.pricing()),
+        )
+        .unwrap();
+
+        let rendered = report.table.render(Style::plain());
+        assert!(rendered.contains(" ~+"), "{rendered}");
+        assert!(rendered.contains("partial"), "the legend explains the mark");
+
+        let row = &report.json_rows[0];
+        assert_eq!(row["cost_partial"], true);
+        assert_eq!(row["cost_priced_requests"], 1);
+        assert_eq!(row["cost_unpriced_requests"], 1);
+        assert!(row["cost_est"].as_f64().unwrap() > 0.0);
+        assert!(
+            report
+                .notes
+                .iter()
+                .any(|n| n.contains("no configured price for claude-opus-5")
+                    && n.contains("marked ~+")),
+            "{:?}",
+            report.notes
+        );
     }
 }

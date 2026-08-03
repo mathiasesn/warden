@@ -111,6 +111,35 @@ impl Config {
     /// Returns `None` when the model has no configured price — callers must
     /// propagate the absence rather than substituting `0.0` (MVP §2.5).
     pub fn estimate_cost(&self, provider: &str, model: &str, tokens: TokenCounts) -> Option<f64> {
+        self.pricing().estimate_cost(provider, model, tokens)
+    }
+
+    /// The price table on its own, detached from the rest of the config.
+    ///
+    /// Reports price at *read* time, so they carry this rather than a borrow of
+    /// the whole config: editing `config.toml` re-prices events that are already
+    /// in the store, without a re-ingest (MVP §2.5).
+    pub fn pricing(&self) -> Pricing {
+        Pricing {
+            table: self.pricing.clone(),
+        }
+    }
+}
+
+/// A price table, owned. Empty by default, and an empty table prices nothing.
+#[derive(Debug, Clone, Default)]
+pub struct Pricing {
+    table: BTreeMap<String, BTreeMap<String, ModelPrice>>,
+}
+
+impl Pricing {
+    /// Configured price for a model, if any.
+    pub fn price(&self, provider: &str, model: &str) -> Option<ModelPrice> {
+        self.table.get(provider)?.get(model).copied()
+    }
+
+    /// `None` when this model has no configured price — never `0.0`.
+    pub fn estimate_cost(&self, provider: &str, model: &str, tokens: TokenCounts) -> Option<f64> {
         let price = self.price(provider, model)?;
         let per_million = |count: Option<u64>, rate: f64| count.unwrap_or(0) as f64 * rate / 1e6;
         // An unset cache_write rate falls back to the input rate, matching how

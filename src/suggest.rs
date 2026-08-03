@@ -16,7 +16,7 @@ use std::io::{self, BufRead, BufReader};
 use std::path::PathBuf;
 
 use crate::cli::TimeWindow;
-use crate::store::{Partition, PromptRecord, ScanQuery, Scanner};
+use crate::store::{PromptRecord, ScanQuery, Scanner, StorePaths};
 
 /// How many times a prompt must appear before it is worth reporting.
 pub const MIN_OCCURRENCES: usize = 2;
@@ -253,34 +253,11 @@ fn event_index(
 
 /// Prompt partitions overlapping the window, chronologically.
 ///
-/// Same half-open overlap rule the event scanner uses, so `--since 7d` opens
-/// one or two files rather than the whole of `prompts/`.
+/// Prompts are partitioned exactly like events, so this is the event scanner's
+/// overlap rule rather than a second copy of it: `--since 7d` opens one or two
+/// files rather than the whole of `prompts/`.
 fn prompt_partitions(scanner: &Scanner, window: TimeWindow) -> io::Result<Vec<PathBuf>> {
-    let dir = scanner.paths().prompts_dir();
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(err),
-    };
-
-    let mut found = Vec::new();
-    for entry in entries {
-        let path = entry?.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let Some(partition) = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .and_then(Partition::parse_stem)
-        else {
-            continue;
-        };
-        if partition.end_ms() > window.from_ms && partition.start_ms() < window.to_ms {
-            found.push((partition, path));
-        }
-    }
-    found.sort_by_key(|(partition, _)| *partition);
+    let found = StorePaths::partitions_in(&scanner.paths().prompts_dir(), window)?;
     Ok(found.into_iter().map(|(_, path)| path).collect())
 }
 

@@ -7,7 +7,7 @@ use super::{count, day_of, rollup, scan, ReportCtx, ReportError, Totals};
 
 pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> {
     let scanned = scan(scanner, ctx)?;
-    let by_day = rollup(&scanned.events, |event| day_of(event.ts));
+    let by_day = rollup(&scanned.events, &ctx.pricing, |event| day_of(event.ts));
 
     let mut table = Table::new([
         "day",

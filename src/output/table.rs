@@ -19,6 +19,7 @@ const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 const GUTTER: usize = 2;
 const LEGEND: &str = "~ estimated";
+const PARTIAL_LEGEND: &str = "~+ partial — excludes models with no configured price";
 
 /// Whether rendering may emit ANSI escapes.
 ///
@@ -51,10 +52,14 @@ pub enum Cell {
     Int(i64),
     /// A ratio or rate, rendered with `decimals` places.
     Float(f64, usize),
-    /// A currency amount. `estimated` prints a `~` and adds the legend footer.
+    /// A currency amount. `estimated` prints a `~` and adds the legend footer;
+    /// `partial` prints `~+` and says the figure omits unpriced spend.
     Money {
         amount: f64,
         estimated: bool,
+        /// Some of what this figure covers could not be priced, so the number
+        /// is a floor. A bare total would silently understate the spend.
+        partial: bool,
     },
     /// The adapter cannot populate this KPI. Visually distinct from `0`.
     Unsupported,
@@ -72,6 +77,17 @@ impl Cell {
         Cell::Money {
             amount,
             estimated: true,
+            partial: false,
+        }
+    }
+
+    /// A cost estimate that is also incomplete: real spend it cannot price is
+    /// missing from it, so it is marked rather than passed off as a total.
+    pub fn money_partial(amount: f64) -> Self {
+        Cell::Money {
+            amount,
+            estimated: true,
+            partial: true,
         }
     }
 
@@ -89,13 +105,21 @@ impl Cell {
         )
     }
 
+    fn is_partial(&self) -> bool {
+        matches!(self, Cell::Money { partial: true, .. })
+    }
+
     /// The visible text, with no escape codes and therefore the true width.
     fn plain(&self) -> String {
         match self {
             Cell::Text(s) => s.clone(),
             Cell::Int(n) => format_count(*n),
             Cell::Float(f, decimals) => format!("{f:.*}", *decimals),
-            Cell::Money { amount, estimated } => format_money(*amount, *estimated),
+            Cell::Money {
+                amount,
+                estimated,
+                partial,
+            } => format_money(*amount, *estimated, *partial),
             Cell::Unsupported => UNSUPPORTED.to_string(),
             Cell::Empty => String::new(),
         }
@@ -114,12 +138,13 @@ pub fn format_count(n: i64) -> String {
     }
 }
 
-/// Currency, with a trailing `~` when the figure is an estimate.
-pub fn format_money(amount: f64, estimated: bool) -> String {
-    if estimated {
-        format!("${amount:.2} ~")
-    } else {
-        format!("${amount:.2}")
+/// Currency, with a trailing `~` when the figure is an estimate and `~+` when
+/// it is an estimate that also omits spend it could not price.
+pub fn format_money(amount: f64, estimated: bool, partial: bool) -> String {
+    match (estimated, partial) {
+        (true, true) => format!("${amount:.2} ~+"),
+        (true, false) => format!("${amount:.2} ~"),
+        (false, _) => format!("${amount:.2}"),
     }
 }
 
@@ -198,10 +223,16 @@ impl Table {
             push_line(&mut out, &line);
         }
 
+        let total: usize = widths.iter().sum::<usize>() + GUTTER * cols.saturating_sub(1);
+        let mut legend = |text: &str| {
+            let indent = total.saturating_sub(width(text));
+            let _ = writeln!(out, "{:indent$}{text}", "");
+        };
         if self.rows.iter().flatten().any(Cell::is_estimate) {
-            let total: usize = widths.iter().sum::<usize>() + GUTTER * cols.saturating_sub(1);
-            let indent = total.saturating_sub(width(LEGEND));
-            let _ = writeln!(out, "{:indent$}{LEGEND}", "");
+            legend(LEGEND);
+        }
+        if self.rows.iter().flatten().any(Cell::is_partial) {
+            legend(PARTIAL_LEGEND);
         }
         out
     }
@@ -276,8 +307,26 @@ mod tests {
 
     #[test]
     fn money_marks_estimates() {
-        assert_eq!(format_money(12.4, true), "$12.40 ~");
-        assert_eq!(format_money(12.4, false), "$12.40");
+        assert_eq!(format_money(12.4, true, false), "$12.40 ~");
+        assert_eq!(format_money(12.4, false, false), "$12.40");
+    }
+
+    #[test]
+    fn a_partial_total_is_marked_and_gets_its_own_legend() {
+        assert_eq!(format_money(107.36, true, true), "$107.36 ~+");
+
+        let table = Table::new(["project", "est. cost"])
+            .with_row(vec![Cell::text("acme"), Cell::money_partial(107.36)])
+            .with_row(vec![Cell::text("dotfiles"), Cell::money_est(0.42)]);
+        let rendered = table.render(Style::plain());
+        assert!(rendered.contains("$107.36 ~+"), "{rendered}");
+        assert!(rendered.contains(LEGEND), "{rendered}");
+        assert!(rendered.contains(PARTIAL_LEGEND), "{rendered}");
+
+        // No partial cell, no partial legend: the marker means something.
+        let whole = Table::new(["project", "est. cost"])
+            .with_row(vec![Cell::text("acme"), Cell::money_est(1.0)]);
+        assert!(!whole.render(Style::plain()).contains(PARTIAL_LEGEND));
     }
 
     #[test]

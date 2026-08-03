@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::config::Pricing;
 use crate::output::{Cell, Report, Table};
 use crate::store::Event;
 use crate::store::Scanner;
@@ -36,20 +37,26 @@ struct Attributed {
     cache_write: f64,
     cost: f64,
     priced_events: u64,
+    /// Events with usage this file was attributed a share of, whose model has
+    /// no configured price. Their spend is missing from `cost`.
+    unpriced_events: u64,
 }
 
 impl Attributed {
-    fn add(&mut self, event: &Event, share: f64, calls: u64) {
+    fn add(&mut self, event: &Event, share: f64, calls: u64, pricing: &Pricing) {
         self.events += 1;
         self.tool_calls += calls;
         self.input += event.input_tok.unwrap_or(0) as f64 * share;
         self.output += event.output_tok.unwrap_or(0) as f64 * share;
         self.cache_read += event.cache_read_tok.unwrap_or(0) as f64 * share;
         self.cache_write += event.cache_write_tok.unwrap_or(0) as f64 * share;
-        if event.model.as_deref() != Some(SYNTHETIC_MODEL) {
-            if let Some(cost) = event.cost_est {
-                self.cost += cost * share;
-                self.priced_events += 1;
+        if event.model.as_deref() != Some(SYNTHETIC_MODEL) && super::has_usage(event) {
+            match super::event_cost(event, pricing) {
+                Some(cost) => {
+                    self.cost += cost * share;
+                    self.priced_events += 1;
+                }
+                None => self.unpriced_events += 1,
             }
         }
     }
@@ -58,9 +65,15 @@ impl Attributed {
         self.input + self.output + self.cache_read + self.cache_write
     }
 
+    fn is_partial(&self) -> bool {
+        self.priced_events > 0 && self.unpriced_events > 0
+    }
+
     fn cost_cell(&self) -> Cell {
         if self.priced_events == 0 {
             Cell::Unsupported
+        } else if self.is_partial() {
+            Cell::money_partial(self.cost)
         } else {
             Cell::money_est(self.cost)
         }
@@ -93,17 +106,19 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
         }
         if calls.is_empty() {
             if super::has_usage(event) {
-                unattributed.add(event);
+                unattributed.add(event, &ctx.pricing);
             }
             continue;
         }
         attributed_events += 1;
         let share = 1.0 / calls.len() as f64;
         for (path, calls_here) in calls {
-            by_file
-                .entry(path.to_string())
-                .or_default()
-                .add(event, share, calls_here);
+            by_file.entry(path.to_string()).or_default().add(
+                event,
+                share,
+                calls_here,
+                &ctx.pricing,
+            );
         }
     }
 
@@ -148,6 +163,9 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             "attributed_cache_read_tok": round2(attributed.cache_read),
             "attributed_cache_write_tok": round2(attributed.cache_write),
             "attributed_cost_est": attributed.cost_json(),
+            "cost_partial": attributed.is_partial(),
+            "cost_priced_events": attributed.priced_events,
+            "cost_unpriced_events": attributed.unpriced_events,
         }));
     }
 

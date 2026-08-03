@@ -31,6 +31,7 @@ use chrono::{TimeZone, Utc};
 use serde_json::{Map, Value};
 
 use crate::cli::TimeWindow;
+use crate::config::{Pricing, TokenCounts};
 use crate::output::{Cell, Report};
 use crate::store::{Event, ScanQuery, ScanStats, Scanner};
 
@@ -51,6 +52,10 @@ pub struct ReportCtx {
     pub project: Option<String>,
     /// Sidechain (subagent) events are real spend and are included by default.
     pub include_sidechain: bool,
+    /// The price table as it is *now*. Cost is derived at read time from this
+    /// and the event's stored token counts, so editing `config.toml` re-prices
+    /// the existing store without a re-ingest (MVP §2.5).
+    pub pricing: Pricing,
 }
 
 impl ReportCtx {
@@ -59,7 +64,15 @@ impl ReportCtx {
             window,
             project,
             include_sidechain,
+            pricing: Pricing::default(),
         }
+    }
+
+    /// Price this run from the user's config. Without it the price table is
+    /// empty and every cost falls back to what was stored at ingest.
+    pub fn with_pricing(mut self, pricing: Pricing) -> Self {
+        self.pricing = pricing;
+        self
     }
 
     /// The same context over a different window, for `compare`.
@@ -151,7 +164,7 @@ pub struct Scanned {
 /// Read the window through the one shared scanner.
 pub fn scan(scanner: &Scanner, ctx: &ReportCtx) -> Result<Scanned, ReportError> {
     let mut events = Vec::new();
-    let mut notes = Notes::new(ctx.include_sidechain);
+    let mut notes = Notes::new(ctx.include_sidechain, ctx.pricing.clone());
     let stats = scanner.scan_with(&ctx.scan_query(), |event| {
         if event.is_sidechain == Some(true) {
             notes.sidechain_events += 1;
@@ -184,11 +197,11 @@ pub struct Cost {
 }
 
 impl Cost {
-    fn add(&mut self, event: &Event) {
+    fn add(&mut self, event: &Event, pricing: &Pricing) {
         if !has_usage(event) || event.model.as_deref() == Some(SYNTHETIC_MODEL) {
             return;
         }
-        match event.cost_est {
+        match event_cost(event, pricing) {
             Some(cost) => {
                 self.total += cost;
                 self.priced += 1;
@@ -203,10 +216,19 @@ impl Cost {
         self.unpriced += other.unpriced;
     }
 
-    /// `–` when nothing in this bucket could be priced; otherwise an estimate.
+    /// True when part of this bucket's spend could not be priced. The total is
+    /// then a floor, not a total, and must not be printed as if it were one.
+    pub fn is_partial(&self) -> bool {
+        self.priced > 0 && self.unpriced > 0
+    }
+
+    /// `–` when nothing in this bucket could be priced, `~+` when only some of
+    /// it could, otherwise a plain estimate.
     pub fn cell(&self) -> Cell {
         if self.priced == 0 {
             Cell::Unsupported
+        } else if self.is_partial() {
+            Cell::money_partial(self.total)
         } else {
             Cell::money_est(self.total)
         }
@@ -220,6 +242,28 @@ impl Cost {
             serde_json::json!(round_money(self.total))
         }
     }
+}
+
+/// What one event cost, priced from the current config.
+///
+/// The config wins; `cost_est` on the record is a cache, used only when the
+/// config has no rate for that model. That is what makes editing `config.toml`
+/// take effect without a re-ingest, while keeping the JSONL self-describing for
+/// `jq` users. `None` — never `0.0` — when neither can price it (MVP §2.5).
+pub fn event_cost(event: &Event, pricing: &Pricing) -> Option<f64> {
+    let model = event.model.as_deref()?;
+    pricing
+        .estimate_cost(
+            &event.provider,
+            model,
+            TokenCounts {
+                input: event.input_tok,
+                output: event.output_tok,
+                cache_read: event.cache_read_tok,
+                cache_write: event.cache_write_tok,
+            },
+        )
+        .or(event.cost_est)
 }
 
 /// Whether this record carries usage at all. Usage is logged once per request,
@@ -249,7 +293,7 @@ pub struct Totals {
 }
 
 impl Totals {
-    pub fn add(&mut self, event: &Event) {
+    pub fn add(&mut self, event: &Event, pricing: &Pricing) {
         self.events += 1;
         if has_usage(event) {
             self.requests += 1;
@@ -258,7 +302,7 @@ impl Totals {
         self.output += event.output_tok.unwrap_or(0);
         self.cache_read += event.cache_read_tok.unwrap_or(0);
         self.cache_write += event.cache_write_tok.unwrap_or(0);
-        self.cost.add(event);
+        self.cost.add(event, pricing);
         if let Some(session) = &event.session_id {
             self.sessions.insert(session.clone());
         }
@@ -304,6 +348,21 @@ impl Totals {
             serde_json::json!(self.cache_write),
         );
         row.insert("cost_est".into(), self.cost.json());
+        // A harness must be able to tell a total from a floor without parsing
+        // the notes: `cost_est` covers `cost_priced_requests` of the
+        // `cost_priced_requests + cost_unpriced_requests` billable requests here.
+        row.insert(
+            "cost_partial".into(),
+            serde_json::json!(self.cost.is_partial()),
+        );
+        row.insert(
+            "cost_priced_requests".into(),
+            serde_json::json!(self.cost.priced),
+        );
+        row.insert(
+            "cost_unpriced_requests".into(),
+            serde_json::json!(self.cost.unpriced),
+        );
     }
 }
 
@@ -322,7 +381,7 @@ fn max_opt(a: Option<i64>, b: Option<i64>) -> Option<i64> {
 }
 
 /// Bucket events by a key. `None` from `key` drops the event from the rollup.
-pub fn rollup<K, F>(events: &[Event], key: F) -> BTreeMap<K, Totals>
+pub fn rollup<K, F>(events: &[Event], pricing: &Pricing, key: F) -> BTreeMap<K, Totals>
 where
     K: Ord,
     F: Fn(&Event) -> Option<K>,
@@ -330,7 +389,7 @@ where
     let mut buckets: BTreeMap<K, Totals> = BTreeMap::new();
     for event in events {
         if let Some(k) = key(event) {
-            buckets.entry(k).or_default().add(event);
+            buckets.entry(k).or_default().add(event, pricing);
         }
     }
     buckets
@@ -394,6 +453,7 @@ pub struct Notes {
     include_sidechain: bool,
     pub sidechain_events: u64,
     pub lines_skipped: u64,
+    pricing: Pricing,
     unpriced_models: BTreeSet<String>,
     synthetic_events: u64,
     events: u64,
@@ -402,11 +462,12 @@ pub struct Notes {
 }
 
 impl Notes {
-    fn new(include_sidechain: bool) -> Self {
+    fn new(include_sidechain: bool, pricing: Pricing) -> Self {
         Self {
             include_sidechain,
             sidechain_events: 0,
             lines_skipped: 0,
+            pricing,
             unpriced_models: BTreeSet::new(),
             synthetic_events: 0,
             events: 0,
@@ -423,7 +484,7 @@ impl Notes {
         self.requests += 1;
         if event.model.as_deref() == Some(SYNTHETIC_MODEL) {
             self.synthetic_events += 1;
-        } else if event.cost_est.is_none() {
+        } else if event_cost(event, &self.pricing).is_none() {
             self.unpriced_models.insert(
                 event
                     .model
@@ -480,8 +541,10 @@ impl Notes {
 
         if !self.unpriced_models.is_empty() {
             notes.push(format!(
-                "no configured price for {} — est. cost is blank for those rows rather than 0; add \
-                 rates under [pricing.<provider>] in config.toml",
+                "no configured price for {} — their spend is in no est. cost figure here: a row \
+                 with nothing else in it is blank rather than 0, and a row that also has priced \
+                 models is marked ~+ and understates its cost; add rates under \
+                 [pricing.<provider>] in config.toml and rerun (no re-ingest needed)",
                 self.unpriced_models
                     .iter()
                     .cloned()
@@ -588,22 +651,95 @@ mod tests {
     #[test]
     fn an_unpriced_bucket_is_unsupported_not_zero() {
         let mut totals = Totals::default();
-        totals.add(&used("a", 0, "p", "claude-opus-5", 10, 10));
+        totals.add(
+            &used("a", 0, "p", "claude-opus-5", 10, 10),
+            &Pricing::default(),
+        );
         assert_eq!(totals.cost.cell(), Cell::Unsupported);
         assert_eq!(totals.cost.json(), Value::Null);
 
-        totals.add(&priced(used("b", 0, "p", "claude-opus-5", 10, 10), 0.5));
-        assert_eq!(totals.cost.cell(), Cell::money_est(0.5));
+        // Mixing an unpriced event with a priced one gives a figure that is
+        // real but incomplete: marked `~+`, never passed off as a total.
+        totals.add(
+            &priced(used("b", 0, "p", "claude-opus-5", 10, 10), 0.5),
+            &Pricing::default(),
+        );
+        assert!(totals.cost.is_partial());
+        assert_eq!(totals.cost.cell(), Cell::money_partial(0.5));
         assert_eq!(totals.cost.json(), serde_json::json!(0.5));
+
+        let mut row = Map::new();
+        totals.write_json(&mut row);
+        assert_eq!(row["cost_partial"], serde_json::json!(true));
+        assert_eq!(row["cost_priced_requests"], serde_json::json!(1));
+        assert_eq!(row["cost_unpriced_requests"], serde_json::json!(1));
+
+        // Everything priced: a plain estimate again.
+        let mut whole = Totals::default();
+        whole.add(
+            &priced(used("c", 0, "p", "claude-opus-5", 10, 10), 0.5),
+            &Pricing::default(),
+        );
+        assert!(!whole.cost.is_partial());
+        assert_eq!(whole.cost.cell(), Cell::money_est(0.5));
+    }
+
+    /// Finding 2: cost comes from the config at *read* time, so a rate added
+    /// after ingest applies without re-ingesting, and the stored `cost_est` is
+    /// only a fallback.
+    #[test]
+    fn config_pricing_wins_over_the_cached_cost_est() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[pricing.anthropic]
+"claude-opus-5" = { input = 15.0, output = 75.0, cache_read = 1.5 }
+"#,
+        )
+        .unwrap();
+        let pricing = config.pricing();
+
+        // 1M in, 1M out, 10M cache read (testkit sets cache_read = input * 10).
+        let event = used("a", 0, "p", "claude-opus-5", 1_000_000, 1_000_000);
+        let cost = event_cost(&event, &pricing).unwrap();
+        assert!((cost - (15.0 + 75.0 + 15.0)).abs() < 1e-9, "got {cost}");
+
+        // A stale ingest-time figure is ignored while the config can price it.
+        let stale = priced(event.clone(), 999.0);
+        assert_eq!(event_cost(&stale, &pricing), Some(cost));
+
+        // No configured rate: the cached figure, then nothing — never 0.0.
+        let empty = Pricing::default();
+        assert_eq!(event_cost(&stale, &empty), Some(999.0));
+        assert_eq!(event_cost(&event, &empty), None);
+    }
+
+    #[test]
+    fn a_model_the_config_cannot_price_stays_none_not_zero() {
+        let config: crate::config::Config = toml::from_str(
+            r#"
+[pricing.anthropic]
+"claude-sonnet-5" = { input = 3.0, output = 15.0, cache_read = 0.3 }
+"#,
+        )
+        .unwrap();
+        let mut totals = Totals::default();
+        totals.add(
+            &used("a", 0, "p", "claude-opus-5", 10, 10),
+            &config.pricing(),
+        );
+        assert_eq!(totals.cost.priced, 0);
+        assert_eq!(totals.cost.unpriced, 1);
+        assert_eq!(totals.cost.cell(), Cell::Unsupported);
+        assert_eq!(totals.cost.json(), Value::Null);
     }
 
     #[test]
     fn records_without_usage_contribute_nothing_but_are_still_counted() {
         let mut totals = Totals::default();
-        totals.add(&used("a", 0, "p", "m", 100, 20));
+        totals.add(&used("a", 0, "p", "m", 100, 20), &Pricing::default());
         let mut sibling = Event::new("b", 0, "claude-code", "anthropic", "assistant");
         sibling.session_id = Some("session-p".into());
-        totals.add(&sibling);
+        totals.add(&sibling, &Pricing::default());
 
         assert_eq!(totals.events, 2);
         assert_eq!(totals.requests, 1, "usage is counted once per request");
@@ -614,7 +750,10 @@ mod tests {
     #[test]
     fn synthetic_is_counted_in_tokens_and_excluded_from_cost() {
         let mut totals = Totals::default();
-        totals.add(&priced(used("a", 0, "p", SYNTHETIC_MODEL, 10, 5), 9.99));
+        totals.add(
+            &priced(used("a", 0, "p", SYNTHETIC_MODEL, 10, 5), 9.99),
+            &Pricing::default(),
+        );
         assert_eq!(totals.input, 10);
         assert_eq!(
             totals.cost,

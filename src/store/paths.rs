@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 
+use crate::cli::TimeWindow;
+
 /// Layout of the store on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorePaths {
@@ -58,6 +60,45 @@ impl StorePaths {
     /// `prompts/YYYY-MM.jsonl`, partitioned identically to events.
     pub fn prompt_partition(&self, partition: Partition) -> PathBuf {
         self.prompts_dir().join(partition.file_name())
+    }
+
+    /// Partition files in `dir` overlapping `window`, chronologically.
+    ///
+    /// `events/` and `prompts/` are partitioned identically, so the overlap rule
+    /// lives here once: both the event scanner and the prompt reader call this
+    /// rather than each deciding for itself what "overlaps" means.
+    ///
+    /// A missing directory is an empty store, not an error.
+    pub fn partitions_in(
+        dir: &Path,
+        window: TimeWindow,
+    ) -> Result<Vec<(Partition, PathBuf)>, io::Error> {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err),
+        };
+
+        let mut found = Vec::new();
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Some(partition) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .and_then(Partition::parse_stem)
+            else {
+                continue;
+            };
+            // Half-open overlap: [start, end) against [from, to).
+            if partition.end_ms() > window.from_ms && partition.start_ms() < window.to_ms {
+                found.push((partition, path));
+            }
+        }
+        found.sort_by_key(|(partition, _)| *partition);
+        Ok(found)
     }
 }
 

@@ -11,6 +11,8 @@ use crate::cli::TimeWindow;
 use crate::output::{Cell, Report, Table};
 use crate::store::Scanner;
 
+use crate::config::Pricing;
+
 use super::{count, round_money, scan, Cost, ReportCtx, ReportError, Totals};
 
 pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> {
@@ -31,16 +33,22 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
     let current = scan(scanner, ctx)?;
     let previous = scan(scanner, &ctx.with_window(previous_window))?;
 
-    let now = fold(&current.events);
-    let before = fold(&previous.events);
+    let now = fold(&current.events, &ctx.pricing);
+    let before = fold(&previous.events, &ctx.pricing);
 
     let mut table = Table::new(["metric", "this period", "previous", "delta", "change"]);
     let mut rows = Vec::new();
 
+    // Cost is the only money metric, and it is a floor rather than a total in
+    // either period where a model could not be priced.
+    let cost_partial = now.cost.is_partial() || before.cost.is_partial();
+
     for metric in METRICS {
         let (this, prev) = ((metric.value)(&now), (metric.value)(&before));
+        let partial = metric.kind == Kind::Money && cost_partial;
         let cell = |value: Option<f64>| match (metric.kind, value) {
             (Kind::Count, Some(v)) => count(v as u64),
+            (Kind::Money, Some(v)) if partial => Cell::money_partial(v),
             (Kind::Money, Some(v)) => Cell::money_est(v),
             (_, None) => Cell::Unsupported,
         };
@@ -59,6 +67,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             cell(this),
             cell(prev),
             match (delta, metric.kind) {
+                (Some(d), Kind::Money) if partial => Cell::money_partial(d),
                 (Some(d), Kind::Money) => Cell::money_est(d),
                 (Some(d), Kind::Count) => Cell::Int(d as i64),
                 (None, _) => Cell::Unsupported,
@@ -80,6 +89,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             "previous_period": number(prev),
             "delta": number(delta),
             "change_pct": change.map(|pct| (pct * 10.0).round() / 10.0),
+            "partial": partial,
         }));
     }
 
@@ -108,10 +118,10 @@ fn iso(ms: i64) -> String {
         .unwrap_or_else(|| "unbounded".to_string())
 }
 
-fn fold(events: &[crate::store::Event]) -> Totals {
+fn fold(events: &[crate::store::Event], pricing: &Pricing) -> Totals {
     let mut totals = Totals::default();
     for event in events {
-        totals.add(event);
+        totals.add(event, pricing);
     }
     totals
 }

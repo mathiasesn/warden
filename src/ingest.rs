@@ -66,6 +66,10 @@ pub struct AdapterIngest {
     pub new_prompts: u64,
     /// Lines the adapter could not parse. Never fatal.
     pub skipped_unparseable: u64,
+    /// Source files skipped because their metadata could not be read (the file
+    /// vanished mid-run, or its mtime is unusable). Counted and reported rather
+    /// than passed over in silence: the next run will retry them.
+    pub unreadable_files: u64,
     /// Lines replayed after an interruption that were already stored.
     pub duplicates: u64,
 }
@@ -139,9 +143,13 @@ fn ingest_adapter(
     for path in adapter.discover(&root)? {
         summary.files_seen += 1;
         let Ok(meta) = std::fs::metadata(&path) else {
+            summary.unreadable_files += 1;
             continue;
         };
-        let mtime = mtime_ms(&meta);
+        let Ok(mtime) = mtime_ms(&meta) else {
+            summary.unreadable_files += 1;
+            continue;
+        };
         if !options.window.contains(mtime) {
             continue;
         }
@@ -344,16 +352,32 @@ fn has_counts(event: &Event) -> bool {
 }
 
 /// Read `state/ingest.jsonl`. Append-only, so later records for a path win;
-/// callers scan from the back. A torn or unreadable line is skipped.
+/// callers scan from the back.
+///
+/// A line that is *unparseable* is skipped — that is a torn append, and the
+/// record before it still stands. A line that cannot be **read** is an error:
+/// truncating the cursor list silently would replay every file from an older
+/// offset, and the run would look like a clean ingest that just found more
+/// events. A wrong answer with no diagnostic is worse than a failed run.
 pub fn load_cursors(paths: &StorePaths) -> io::Result<Vec<IngestCursor>> {
-    let file = match File::open(paths.ingest_state_file()) {
+    let path = paths.ingest_state_file();
+    let file = match File::open(&path) {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(err),
     };
     let mut cursors = Vec::new();
     for line in BufReader::new(file).lines() {
-        let Ok(line) = line else { break };
+        let line = line.map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!(
+                    "reading ingest cursors from {}: {err}; refusing to continue from a truncated \
+                     cursor list, which would silently re-read sources from an older offset",
+                    path.display()
+                ),
+            )
+        })?;
         if let Ok(cursor) = serde_json::from_str::<IngestCursor>(&line) {
             cursors.push(cursor);
         }
@@ -361,12 +385,27 @@ pub fn load_cursors(paths: &StorePaths) -> io::Result<Vec<IngestCursor>> {
     Ok(cursors)
 }
 
-fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
-    meta.modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|since| since.as_millis() as i64)
-        .unwrap_or(0)
+/// A source file's mtime, in epoch milliseconds.
+///
+/// An unreadable or pre-epoch mtime is an error rather than `0`: `0` is a
+/// perfectly valid timestamp, so it would be written into a cursor and compared
+/// against `--since` windows as if it were the truth.
+fn mtime_ms(meta: &std::fs::Metadata) -> io::Result<i64> {
+    let modified = meta.modified()?;
+    let since = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("source file mtime precedes the unix epoch: {err}"),
+            )
+        })?;
+    i64::try_from(since.as_millis()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "source file mtime does not fit in epoch milliseconds",
+        )
+    })
 }
 
 #[cfg(test)]
@@ -582,6 +621,54 @@ mod tests {
         let stored = prompts(&f);
         assert!(stored.contains("\"text_hash\":"));
         assert!(!stored.contains("run the tests"), "{stored}");
+    }
+
+    /// An unparseable cursor line is a torn append: skip it, keep the rest.
+    #[test]
+    fn a_torn_cursor_line_is_skipped_but_the_others_still_load() {
+        let f = setup();
+        ingest(&f);
+        let mut state = std::fs::OpenOptions::new()
+            .append(true)
+            .open(f.store.ingest_state_file())
+            .unwrap();
+        write!(state, "{{\"path\":\"/x\",\"mtime\"").unwrap();
+        drop(state);
+
+        assert_eq!(load_cursors(&f.store).unwrap().len(), 1);
+    }
+
+    /// An *unreadable* cursor line is not: silently truncating the list would
+    /// replay every source from an older offset with no diagnostic.
+    #[test]
+    fn an_unreadable_cursor_line_is_an_error_not_a_silent_truncation() {
+        let f = setup();
+        ingest(&f);
+        let committed = load_cursors(&f.store).unwrap();
+        assert_eq!(committed.len(), 1, "a cursor was written to truncate");
+
+        // Invalid UTF-8: `BufRead::lines` yields Err, not a short line.
+        let mut state = std::fs::OpenOptions::new()
+            .append(true)
+            .open(f.store.ingest_state_file())
+            .unwrap();
+        state.write_all(&[0xff, 0xfe, b'\n']).unwrap();
+        drop(state);
+
+        let err = load_cursors(&f.store).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("ingest cursors"), "{msg}");
+        assert!(msg.contains("older offset"), "{msg}");
+
+        // And the run that would have replayed fails loudly instead.
+        assert!(run(&f.config, &f.store, &IngestOptions::default()).is_err());
+    }
+
+    #[test]
+    fn a_usable_mtime_is_required_rather_than_defaulted_to_zero() {
+        let meta = std::fs::metadata(&setup().source).unwrap();
+        let mtime = mtime_ms(&meta).expect("a real file has a readable mtime");
+        assert!(mtime > 1_700_000_000_000, "got {mtime}");
     }
 
     #[test]

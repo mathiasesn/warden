@@ -21,7 +21,9 @@ const NO_PROJECT: &str = "(no project)";
 
 pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> {
     let scanned = scan(scanner, ctx)?;
-    let by_session = rollup(&scanned.events, |event| event.session_id.clone());
+    let by_session = rollup(&scanned.events, &ctx.pricing, |event| {
+        event.session_id.clone()
+    });
     let total_sessions = by_session.len();
 
     // Per-session facts that do not live on `Totals`.

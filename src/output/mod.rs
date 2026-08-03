@@ -27,6 +27,10 @@ pub struct Report {
     pub table: Table,
     pub json_rows: Vec<serde_json::Value>,
     pub notes: Vec<String>,
+    /// Pre-rendered human form, for commands whose output is prose rather than
+    /// a table (`ingest`, `doctor`). When set it replaces the table in non-JSON
+    /// mode; the envelope is unaffected either way.
+    pub text: Option<String>,
 }
 
 impl Report {
@@ -37,6 +41,16 @@ impl Report {
             table,
             json_rows: Vec::new(),
             notes: Vec::new(),
+            text: None,
+        }
+    }
+
+    /// A report whose human form is prose. It still goes out through [`emit`],
+    /// so `--json` remains a single parseable document with no table alongside.
+    pub fn prose(name: impl Into<String>, window: TimeWindow, text: String) -> Self {
+        Self {
+            text: Some(text),
+            ..Self::new(name, window, Table::new(Vec::<String>::new()))
         }
     }
 
@@ -80,6 +94,8 @@ pub fn write_report<W: Write>(
         let body = serde_json::to_string_pretty(&report.envelope())
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         writeln!(out, "{body}")
+    } else if let Some(text) = &report.text {
+        write!(out, "{text}")
     } else {
         write!(out, "{}", report.table.render(style))
     }
@@ -116,6 +132,28 @@ mod tests {
         assert_eq!(v["rows"][0]["project"], "acme-api");
         assert!(!out.contains("PROJECT"));
         assert!(!out.contains('\x1b'));
+    }
+
+    #[test]
+    fn a_prose_report_prints_its_text_but_still_emits_the_envelope() {
+        let report = Report::prose(
+            "ingest",
+            TimeWindow::all(),
+            "claude-code   1 files\n".into(),
+        )
+        .with_json_rows(vec![serde_json::json!({"adapter": "claude-code"})]);
+
+        let mut human = Vec::new();
+        write_report(&mut human, &report, false, Style::plain()).unwrap();
+        assert_eq!(String::from_utf8(human).unwrap(), "claude-code   1 files\n");
+
+        let mut json = Vec::new();
+        write_report(&mut json, &report, true, Style::plain()).unwrap();
+        let out = String::from_utf8(json).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["report"], "ingest");
+        assert_eq!(v["rows"][0]["adapter"], "claude-code");
+        assert!(!out.contains("claude-code   1 files"), "no prose in --json");
     }
 
     #[test]

@@ -51,21 +51,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let ctx = context(&cli)?;
     match &cli.command {
         Command::Ingest => {
-            warden::commands::ingest::run(
-                &ctx.config,
-                &ctx.paths,
-                ctx.window,
-                ctx.project.as_deref(),
-            )?;
+            warden::commands::ingest::run(&ctx.env())?;
             Ok(())
         }
         Command::Doctor => {
-            warden::commands::doctor::run(
-                &ctx.config,
-                &ctx.paths,
-                ctx.window,
-                ctx.project.as_deref(),
-            )?;
+            warden::commands::doctor::run(&ctx.env())?;
             Ok(())
         }
         Command::Report { name } => {

@@ -82,7 +82,7 @@ pub fn build(
     let mut buckets: BTreeMap<Vec<Option<String>>, Totals> = BTreeMap::new();
     for event in &scanned.events {
         let key: Vec<Option<String>> = dims.iter().map(|dim| dim.value(event)).collect();
-        buckets.entry(key).or_default().add(event);
+        buckets.entry(key).or_default().add(event, &ctx.pricing);
     }
 
     let mut headers: Vec<String> = dims.iter().map(|dim| dim.name().to_string()).collect();

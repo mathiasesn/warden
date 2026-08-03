@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use crate::adapters::{self, Capabilities};
 use crate::cli::TimeWindow;
-use crate::config::Config;
+use crate::config::{Config, Pricing};
 use crate::store::{expand_tilde, Partition, ScanQuery, Scanner, StorePaths};
 
 /// Whether a source is there to read.
@@ -81,7 +81,7 @@ pub fn run(
 
     Ok(DoctorReport {
         adapters: health,
-        store: store_health(paths, window, project)?,
+        store: store_health(paths, window, project, &config.pricing())?,
     })
 }
 
@@ -89,6 +89,7 @@ fn store_health(
     paths: &StorePaths,
     window: TimeWindow,
     project: Option<&str>,
+    pricing: &Pricing,
 ) -> io::Result<StoreHealth> {
     let scanner = Scanner::new(paths.clone());
     let partitions = scanner.partitions_for(window)?;
@@ -107,7 +108,9 @@ fn store_health(
     scanner.scan_with(&query, |event| {
         store.events += 1;
         let counted = event.input_tok.is_some() || event.output_tok.is_some();
-        if counted && event.cost_est.is_none() {
+        // Priced from the config as it is now, exactly as a report would: a
+        // rate added since ingest must stop doctor from calling it unpriced.
+        if counted && crate::reports::event_cost(&event, pricing).is_none() {
             unpriced.insert(event.model.unwrap_or_else(|| "(unknown model)".into()));
         }
     })?;
@@ -195,5 +198,18 @@ mod tests {
         assert!(report.store.bytes > 0);
         assert_eq!(report.store.oldest, Some(Partition::new(2026, 8)));
         assert_eq!(report.store.unpriced_models, vec!["claude-sonnet-4-6"]);
+
+        // Adding the rate to config re-prices the *existing* store: doctor
+        // stops naming the model without anything being re-ingested.
+        let config: Config = toml::from_str(
+            r#"
+[pricing.anthropic]
+"claude-sonnet-4-6" = { input = 3.0, output = 15.0, cache_read = 0.3 }
+"#,
+        )
+        .unwrap();
+        let report = run(&config, &paths, TimeWindow::all(), None).unwrap();
+        assert!(report.store.unpriced_models.is_empty());
+        assert_eq!(report.store.events, 1, "nothing was re-ingested");
     }
 }

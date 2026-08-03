@@ -239,6 +239,10 @@ path = "~/.claude/projects"
 "claude-opus-4-1"   = { input = 15.0, output = 75.0, cache_read = 1.5, cache_write = 18.75 }
 ```
 
+Prices are applied when a report is built, not baked in at ingest, so adding a
+rate re-prices events that are already in the store — no re-ingest, and a row
+mixing priced and unpriced models is marked `~+` rather than reported as a total.
+
 `warden doctor` names every model it saw with no configured price.
 
 ## Privacy

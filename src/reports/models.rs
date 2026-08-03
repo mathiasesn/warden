@@ -12,7 +12,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
     // Only records that carry usage identify a model in a meaningful way; a
     // user prompt has no model and would otherwise invent a `(no model)` row
     // the size of the transcript.
-    let by_model = rollup(&scanned.events, |event| {
+    let by_model = rollup(&scanned.events, &ctx.pricing, |event| {
         super::has_usage(event).then(|| event.model.clone().unwrap_or_else(|| UNKNOWN.to_string()))
     });
 
