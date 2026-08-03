@@ -1,88 +1,71 @@
-mod agent;
-mod app;
-mod event;
-mod runner;
-mod storage;
-mod ui;
+//! The `warden` binary: a thin dispatcher over the library.
 
-use crossterm::{
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io;
-use std::time::Duration;
-use tokio::sync::mpsc;
+use std::process::ExitCode;
 
-use app::App;
-use event::Event;
+use chrono::Utc;
+use clap::Parser;
 
-/// Idle redraw cadence. Input and (later) agent events drive redraws directly;
-/// this only governs time-based animation while nothing else is happening.
-const TICK_RATE: Duration = Duration::from_millis(100);
+use warden::cli::{Cli, Command, TimeWindow};
+use warden::config::Config;
+use warden::store::StorePaths;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // ── Terminal setup ───────────────────────────────────────────────
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    // ── App ─────────────────────────────────────────────────────────
-    let mut app = App::new();
-    app.init();
-
-    // Use the real backend when a key is configured; otherwise keep the mock.
-    let runner_label = match std::env::var("ANTHROPIC_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => {
-            app.set_backend(Box::new(runner::AnthropicBackend::new(key)));
-            "Anthropic"
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("warden: {err}");
+            ExitCode::FAILURE
         }
-        _ => "mock",
-    };
-    app.status_msg = format!("{}  ·  runner: {runner_label}", app.status_msg);
-
-    // ── Event sources ────────────────────────────────────────────────
-    // Input and ticks arrive on one channel so the loop can multiplex them
-    // (and, soon, agent-execution events) without ever blocking on the keyboard.
-    let (tx, rx) = mpsc::unbounded_channel();
-    event::spawn_input(tx.clone());
-    event::spawn_ticker(tx.clone(), TICK_RATE);
-    app.set_event_sender(tx);
-
-    let result = run(&mut terminal, &mut app, rx).await;
-
-    // ── Restore terminal ────────────────────────────────────────────
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
-    if let Err(e) = result {
-        eprintln!("Error: {e}");
     }
-    Ok(())
 }
 
-async fn run<B: ratatui::backend::Backend>(
-    terminal: &mut Terminal<B>,
-    app: &mut App,
-    mut rx: mpsc::UnboundedReceiver<Event>,
-) -> io::Result<()> {
-    loop {
-        terminal.draw(|f| ui::draw(f, app))?;
+/// Everything a subcommand needs, resolved once. Later phases consume these
+/// fields; nothing is wired up yet.
+#[allow(dead_code)]
+struct Context {
+    config: Config,
+    paths: StorePaths,
+    window: TimeWindow,
+    project: Option<String>,
+    json: bool,
+    no_ingest: bool,
+}
 
-        match rx.recv().await {
-            Some(Event::Input(key)) => app.handle_key(key),
-            Some(Event::Tick) => app.on_tick(),
-            Some(Event::Agent { id, kind }) => app.apply_agent_event(&id, kind),
-            // All event sources dropped — nothing left to drive the UI.
-            None => return Ok(()),
-        }
-
-        if app.should_quit {
-            return Ok(());
+fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+    let _ctx = context(&cli)?;
+    match &cli.command {
+        Command::Ingest
+        | Command::Report { .. }
+        | Command::Query { .. }
+        | Command::Watch { .. }
+        | Command::Suggest { .. }
+        | Command::Doctor
+        | Command::Purge { .. } => {
+            Err(format!("`{}` is not implemented yet", cli.command.name()).into())
         }
     }
+}
+
+/// Resolve config and store location. The config file lives inside the store,
+/// so the flag (or the default root) locates it first; `general.data_dir` can
+/// then redirect the store itself.
+fn context(cli: &Cli) -> Result<Context, Box<dyn std::error::Error>> {
+    let bootstrap = StorePaths::resolve(cli.data_dir.as_deref(), None)?;
+    let config = Config::load_from_dir(bootstrap.root())?;
+    let paths = StorePaths::resolve(cli.data_dir.as_deref(), config.general.data_dir.as_deref())?;
+
+    let window = match &cli.since {
+        Some(spec) => TimeWindow::parse_since(spec, Utc::now())?,
+        None => TimeWindow::all(),
+    };
+
+    Ok(Context {
+        config,
+        paths,
+        window,
+        project: cli.project.clone(),
+        json: cli.json,
+        no_ingest: cli.no_ingest,
+    })
 }
