@@ -18,7 +18,11 @@ import os
 import sys
 from importlib.metadata import PackageNotFoundError, PackagePath, distribution
 
-_REMEDY = "Reinstall warden from a wheel, e.g. `pip install warden-cli`."
+# The crates.io/PyPI package name, which differs from the `warden` command it
+# installs (`warden` was already taken on both registries).
+_DIST_NAME = "warden-cli"
+
+_REMEDY = f"Reinstall warden from a wheel, e.g. `pip install {_DIST_NAME}`."
 
 
 class WardenNotFound(FileNotFoundError):
@@ -43,10 +47,10 @@ def find_warden_bin() -> str:
     exe_name = "warden" + (".exe" if sys.platform == "win32" else "")
 
     try:
-        dist = distribution("warden-cli")
+        dist = distribution(_DIST_NAME)
     except PackageNotFoundError as exc:
         raise WardenNotFound(
-            "No installed `warden-cli` distribution was found via "
+            f"No installed `{_DIST_NAME}` distribution was found via "
             "importlib.metadata (e.g. running from a source checkout rather "
             f"than an installed wheel). {_REMEDY}"
         ) from exc
@@ -55,7 +59,7 @@ def find_warden_bin() -> str:
     files = dist.files
     if files is None:
         raise WardenNotFound(
-            "The installed `warden-cli` distribution has no RECORD, so the "
+            f"The installed `{_DIST_NAME}` distribution has no RECORD, so the "
             f"binary's location cannot be resolved. {_REMEDY}"
         )
 
@@ -63,7 +67,7 @@ def find_warden_bin() -> str:
     if entry is None:
         raise WardenNotFound(
             f"No `{exe_name}` script entry was found among the {len(files)} "
-            f"RECORD entries for the `warden-cli` distribution. {_REMEDY}"
+            f"RECORD entries for the `{_DIST_NAME}` distribution. {_REMEDY}"
         )
 
     resolved = os.path.normpath(entry.locate())

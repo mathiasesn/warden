@@ -1,16 +1,16 @@
 name: Release PyPI
 
 # Triggered by the tag release-plz pushes on a successful crates.io release,
-# so a version only reaches PyPI after it has already reached crates.io. This
-# only works because release-plz.yml's release job pushes that tag using
-# RELEASE_PLZ_TOKEN rather than the default GITHUB_TOKEN — GitHub's loop
-# prevention would otherwise silently swallow the trigger. `workflow_dispatch`
-# is also wired up: the wheel matrix (cross-compiled aarch64, musllinux) is
-# the most fragile piece of this pipeline and only exercises against a real
-# tag, so if it fails after the crates.io publish has already gone out, this
-# workflow must be re-runnable without minting a new version to retry.
-# `workflow_dispatch` against a branch builds that branch, not the tag — it
-# only reproduces the tagged build while the branch and tag still agree.
+# so a version only reaches PyPI after it has already reached crates.io. The
+# tag fires this workflow only because release-plz.yml pushes it with
+# RELEASE_PLZ_TOKEN — see the comment on that job's env block.
+#
+# `workflow_dispatch` exists because the wheel matrix (cross-compiled aarch64,
+# musllinux) is the most fragile piece of this pipeline and only exercises
+# against a real tag: when it fails after the crates.io publish has gone out,
+# the release must be completable without minting a new version. Note it
+# builds the ref you dispatch against, so it only reproduces the tagged build
+# while that ref and the tag still agree.
 on:
   push:
     tags:
@@ -36,41 +36,30 @@ jobs:
           name: wheels-sdist
           path: dist
 
-  linux:
-    name: Build wheels (linux, ${{ matrix.target }})
-    runs-on: ubuntu-latest
+  # One job for every wheel. The legs differ only in runner, target, and (on
+  # linux) libc, so they are matrix rows rather than separate jobs: adding a
+  # platform is a row, and there is no way for the build or upload steps to
+  # drift apart between platforms. `manylinux` is unset outside linux, where
+  # maturin-action ignores it. The two linux libc variants are separate rows,
+  # not two steps in one job — they share no build artifacts (different
+  # container, different libc), so running them as one job would serialise two
+  # full compiles for no benefit.
+  build:
+    name: Build wheels (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      # One failing platform should not cancel the others: a tag build is
+      # expensive and the surviving wheels are still worth inspecting.
+      fail-fast: false
       matrix:
-        target: [x86_64, aarch64]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build manylinux wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist
-          manylinux: auto
-
-      - name: Build musllinux wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.target }}
-          args: --release --out dist
-          manylinux: musllinux_1_2
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-${{ matrix.target }}
-          path: dist
-
-  macos:
-    name: Build wheels (macos, ${{ matrix.target }})
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        target: [x86_64, aarch64]
+        include:
+          - { name: linux-x86_64-manylinux, os: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { name: linux-x86_64-musllinux, os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
+          - { name: linux-aarch64-manylinux, os: ubuntu-latest, target: aarch64, manylinux: auto }
+          - { name: linux-aarch64-musllinux, os: ubuntu-latest, target: aarch64, manylinux: musllinux_1_2 }
+          - { name: macos-x86_64, os: macos-latest, target: x86_64 }
+          - { name: macos-aarch64, os: macos-latest, target: aarch64 }
+          - { name: windows-x64, os: windows-latest, target: x64 }
     steps:
       - uses: actions/checkout@v4
 
@@ -79,35 +68,20 @@ jobs:
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
+          manylinux: ${{ matrix.manylinux }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.target }}
-          path: dist
-
-  windows:
-    name: Build wheels (windows, x64)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: x64
-          args: --release --out dist
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-windows-x64
+          # upload-artifact@v4 rejects duplicate names, so each leg needs its
+          # own; the publish job globs them back together.
+          name: wheels-${{ matrix.name }}
           path: dist
 
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: [sdist, linux, macos, windows]
+    needs: [sdist, build]
     permissions:
       # PyPI Trusted Publishing (OIDC): the publisher is configured once on
       # PyPI against this repo + workflow, so no long-lived PYPI_API_TOKEN

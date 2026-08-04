@@ -1,9 +1,10 @@
-# release-plz configuration for warden (single crate, published to crates.io as
-# `warden-cli`). No [[package]] version_group here — that's only needed to keep
-# multiple crates in a workspace on the same version number, and this repo has
-# just the one crate.
+# release-plz needs no configuration here: changelog updates, git tags, GitHub
+# releases, and publishing are all enabled by default, and this repo wants all
+# four. Setting them explicitly would only restate the defaults.
+#
+# The file exists to record what is deliberately absent. There is no
+# [[package]] version_group, because that only serves to keep several workspace
+# crates on one version number, and warden is a single crate. If this repo ever
+# becomes a workspace, every member must be listed here under a shared
+# version_group or they will silently version independently.
 [workspace]
-changelog_update = true   # keep CHANGELOG.md current on every release PR
-git_release_enable = true # create a GitHub release alongside each git tag
-git_tag_enable = true     # tag each release as vX.Y.Z
-publish = true            # run `cargo publish` for the release job

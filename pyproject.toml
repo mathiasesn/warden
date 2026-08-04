@@ -4,13 +4,13 @@ build-backend = "maturin"
 
 [project]
 name = "warden-cli"
-description = "A local, read-only CLI that analyzes your coding agent's session logs and turns that analysis into skills, slash commands, and prompts."
 readme = "README.md"
-license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
-dynamic = ["version"]
-keywords = ["cli", "claude-code", "analytics", "logs", "agent"]
+# Inherited from Cargo.toml rather than restated here, so the crate and the
+# wheel cannot describe warden differently. Only fields Cargo has no notion of
+# (requires-python, classifiers) are declared below.
+dynamic = ["version", "description", "license", "keywords"]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
