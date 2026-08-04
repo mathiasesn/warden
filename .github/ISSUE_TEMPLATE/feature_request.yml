@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a new capability, report, or change in behaviour
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please search the [existing issues](../../issues)
+        — the idea may already be proposed, planned, or deliberately declined.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New named report
+        - report
+        - query
+        - watch
+        - suggest
+        - ingest
+        - doctor
+        - purge
+        - output / JSON envelope
+        - new adapter (another agent harness)
+        - config (config file / env / pricing table)
+        - docs
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do today, and why does that hurt?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: >
+        What should warden do instead? For a new report, state what it
+        groups by and which columns it shows. The named report set is
+        closed by policy — arbitrary grouping belongs in `query` — so a
+        new-report proposal should say why `query` is insufficient.
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example
+      description: The command plus the output you'd want.
+      render: shell
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

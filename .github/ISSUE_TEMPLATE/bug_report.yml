@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in warden behaves incorrectly
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please search the [existing issues](../../issues)
+        — the bug may already be reported or knowingly deferred.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of warden does this affect?
+      options:
+        - report
+        - query
+        - watch
+        - suggest
+        - ingest
+        - doctor
+        - purge
+        - --json output
+        - cost / pricing
+        - store / ingest cursor
+        - adapter (source discovery / parsing)
+        - install / packaging (cargo, pip)
+        - other / not command-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: |
+        What did warden do, and what did you expect instead? Note: anything
+        warden cannot derive renders as a dim `–`, never `0`. A figure
+        showing `–` is usually correct behaviour; a figure showing `0` when
+        you expected `–` (or vice versa) is the bug worth reporting.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        Exact command, including flags. Reproduce with `--data-dir <tmp>`
+        rather than your real store — running warden writes a store even
+        though it only reads sources. Prompt text can be sensitive: redact
+        it rather than pasting whole sessions.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`warden doctor` output"
+      description: |
+        Output of `warden doctor` (optionally with `--data-dir <tmp>`).
+        This answers most "empty number" reports on its own.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: warden version
+      description: Output of `warden --version`, or the commit SHA.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "Linux 6.8 x86_64 / macOS 15 arm64 / Windows 11"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Logs, stack traces, related issues.
