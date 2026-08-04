@@ -67,7 +67,7 @@ pub enum Command {
     /// Detected improvements (exact-duplicate prompts).
     Suggest {
         /// Print the SKILL.md draft for a suggestion to stdout.
-        #[arg(long, value_name = "ID")]
+        #[arg(long, value_name = "ID", conflicts_with = "json")]
         draft: Option<String>,
     },
     /// Report what warden can see and why a number might be empty.
@@ -81,21 +81,6 @@ pub enum Command {
         #[arg(long, visible_alias = "force")]
         yes: bool,
     },
-}
-
-impl Command {
-    /// Stable name used in the JSON envelope and error messages.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Command::Ingest => "ingest",
-            Command::Report { .. } => "report",
-            Command::Query { .. } => "query",
-            Command::Watch { .. } => "watch",
-            Command::Suggest { .. } => "suggest",
-            Command::Doctor => "doctor",
-            Command::Purge { .. } => "purge",
-        }
-    }
 }
 
 /// A half-open `[from, to)` window in epoch milliseconds.
@@ -245,6 +230,16 @@ mod tests {
                 "expected {spec:?} to be rejected"
             );
         }
+    }
+
+    #[test]
+    fn draft_and_json_conflict_at_the_parser() {
+        let err = Cli::try_parse_from(["warden", "suggest", "--draft", "abc", "--json"])
+            .expect_err("--draft and --json should conflict");
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+
+        Cli::try_parse_from(["warden", "suggest", "--draft", "abc"])
+            .expect("--draft alone should parse fine");
     }
 
     #[test]

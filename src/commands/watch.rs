@@ -8,7 +8,7 @@
 //! properly means tailing the partition from a byte offset instead of rescanning,
 //! and that is not in scope yet. It says so rather than pretending.
 
-use std::io::{self, Write};
+use std::io;
 
 use chrono::Utc;
 
@@ -64,13 +64,9 @@ pub fn run(env: &Env<'_>, oneline: bool) -> io::Result<Burn> {
         now.timestamp_millis(),
     )?;
 
-    if env.json {
-        emit(&report(&burn, env), true)?;
-    } else {
-        let mut stdout = io::stdout().lock();
-        writeln!(stdout, "{}", burn.line())?;
-        stdout.flush()?;
-    }
+    let mut report = report(&burn, env);
+    report.text = Some(format!("{}\n", burn.line()));
+    emit(&report, env.json)?;
     Ok(burn)
 }
 
@@ -153,6 +149,9 @@ fn report(burn: &Burn, env: &Env<'_>) -> Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::TimeWindow;
+    use crate::config::Config;
+    use crate::output::{write_report, Style};
     use crate::reports::testkit::{store, used};
     use chrono::{TimeZone, Utc};
 
@@ -208,6 +207,40 @@ mod tests {
         let burn = burn(&Scanner::new(paths), None, now()).unwrap();
         assert_eq!(burn, Burn::default());
         assert_eq!(burn.line(), "no activity in the current partition");
+    }
+
+    #[test]
+    fn the_human_writer_gets_exactly_the_burn_line() {
+        let (_dir, paths) = store(&[used("a", mins(10), "acme-api", "m", 1_000, 0)]);
+        let burn = burn(&Scanner::new(paths.clone()), None, now()).unwrap();
+        let config = Config::default();
+        let env = Env {
+            config: &config,
+            paths: &paths,
+            window: TimeWindow::all(),
+            project: None,
+            json: false,
+            no_ingest: true,
+            include_sidechain: true,
+        };
+        let mut report = report(&burn, &env);
+        report.text = Some(format!("{}\n", burn.line()));
+
+        let mut human = Vec::new();
+        write_report(&mut human, &report, false, Style::plain()).unwrap();
+        assert_eq!(
+            String::from_utf8(human).unwrap(),
+            format!("{}\n", burn.line())
+        );
+
+        let mut json = Vec::new();
+        write_report(&mut json, &report, true, Style::plain()).unwrap();
+        let out = String::from_utf8(json).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["report"], "watch");
+        assert_eq!(v["rows"][0]["project"], "acme-api");
+        assert_eq!(v["rows"][0]["tokens_per_hour"], burn.tokens_per_hour);
+        assert_eq!(v["notes"].as_array().unwrap().len(), 2);
     }
 
     #[test]

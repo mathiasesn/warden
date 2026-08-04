@@ -1,7 +1,9 @@
 //! Command implementations: the thin layer between the CLI and the library.
 //!
-//! `ingest` and `doctor` render with plain `println!`; the reporting commands go
-//! through [`crate::output::emit`], which owns the table/`--json` split.
+//! Every command builds a [`crate::output::Report`] and hands it to
+//! [`crate::output::emit`]; `emit` is the only place that branches on `--json`.
+//! `ingest` and `doctor` render prose via [`crate::output::Report::prose`]
+//! rather than a table, but they still go out through `emit`.
 
 pub mod doctor;
 pub mod ingest;
