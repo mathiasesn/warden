@@ -125,7 +125,7 @@ embeddings, no fuzzy matching, no false positives.
 
 ```
 $ warden suggest --since 14d
-1015 repeated prompts found, showing the 20 most repeated — --json has them all
+1015 repeated prompts found, showing the 20 most repeated — --json has them all  # stderr
 
 ID        COUNT  LAST     PROJECTS                                                SUGGESTION                                     PROMPT
 17eaf8bd     86  59m ago  adept, adept-impl, adept-python-packaging, +7 more      → draft skill: simplify-4-cleanup-agents       "`/simplify → 4 cleanup agents in parallel → apply the fixes` Yo…"

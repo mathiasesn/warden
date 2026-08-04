@@ -123,7 +123,7 @@ Global flags apply to every subcommand — `--json`, `--since <7d|24h|90m|2w|202
 | `report <name>` | One of the fixed set named in `reports::NAMES`: `summary`, `projects`, `models`, `sessions`, `tools`, `compare`, `files`. `compare` is the one report needing a bounded window. |
 | `query --group-by <dims>` | Rollup over `project`, `model`, `agent`, `provider`, `day`, `session`, `role`. |
 | `watch --oneline` | Single status-bar line (tmux). Only `--oneline` ships in 0.1.0; the streaming form says so rather than faking it. |
-| `suggest [--draft <id>]` | Repeated prompts; `--draft` prints a `SKILL.md` to **stdout and writes nothing**, and conflicts with `--json` (a parse error, not a silent ignore). |
+| `suggest [--draft <id>]` | Repeated prompts; the `N repeated prompts found` headline goes to **stderr**, unconditionally (even under `--json`), so stdout stays the table or the envelope alone. `--draft` prints a `SKILL.md` to **stdout and writes nothing**, and conflicts with `--json` (a parse error, not a silent ignore). |
 | `doctor` | What warden can see, and why a column is blank. |
 | `purge --prompts [--yes\|--force]` | The only command that rewrites files; `--yes` is required when stdin is not a TTY. |
 
