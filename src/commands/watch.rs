@@ -12,8 +12,7 @@ use std::io;
 
 use chrono::Utc;
 
-use crate::output::{emit, format_count, Cell, Report, Table};
-use crate::reports::{count, format_span};
+use crate::output::{emit, format_count, Report};
 use crate::store::{Partition, ScanQuery, Scanner};
 
 use super::Env;
@@ -121,15 +120,11 @@ pub fn burn(scanner: &Scanner, project: Option<&str>, now_ms: i64) -> io::Result
     })
 }
 
+/// `watch`'s human form is one status-bar line, not a table — so it is a prose
+/// report, the same shape `ingest` and `doctor` use. The envelope still carries
+/// the figures as real rows for a harness to do its own arithmetic on.
 fn report(burn: &Burn, env: &Env<'_>) -> Report {
-    let table = Table::new(["project", "tok/hr", "session", "session tokens"]).with_row(vec![
-        Cell::text(burn.project.clone().unwrap_or_else(|| "(none)".into())),
-        count(burn.tokens_per_hour),
-        Cell::text(format_span(burn.session_ms)),
-        count(burn.session_tokens),
-    ]);
-
-    let mut report = Report::new("watch", env.window, table)
+    Report::prose("watch", env.window, format!("{}\n", burn.line()))
         .with_json_rows(vec![serde_json::json!({
             "project": burn.project,
             "tokens_per_hour": burn.tokens_per_hour,
@@ -141,9 +136,7 @@ fn report(burn: &Burn, env: &Env<'_>) -> Report {
             "tok/hr is every token in the last hour — input, output, and cache — from the \
                 current month's partition only",
             "--since does not apply to watch: it always reports on now",
-        ]);
-    report.text = Some(format!("{}\n", burn.line()));
-    report
+        ])
 }
 
 #[cfg(test)]
@@ -153,6 +146,7 @@ mod tests {
     use crate::config::Config;
     use crate::output::{write_report, Style};
     use crate::reports::testkit::{store, used};
+    use crate::store::StorePaths;
     use chrono::{TimeZone, Utc};
 
     /// Timestamps relative to a fixed "now" inside a real month partition.
@@ -164,6 +158,18 @@ mod tests {
 
     fn mins(n: i64) -> i64 {
         now() - n * 60_000
+    }
+
+    fn env<'a>(paths: &'a StorePaths, config: &'a Config) -> Env<'a> {
+        Env {
+            config,
+            paths,
+            window: TimeWindow::all(),
+            project: None,
+            json: false,
+            no_ingest: true,
+            include_sidechain: true,
+        }
     }
 
     #[test]
@@ -214,16 +220,7 @@ mod tests {
         let (_dir, paths) = store(&[used("a", mins(10), "acme-api", "m", 1_000, 0)]);
         let burn = burn(&Scanner::new(paths.clone()), None, now()).unwrap();
         let config = Config::default();
-        let env = Env {
-            config: &config,
-            paths: &paths,
-            window: TimeWindow::all(),
-            project: None,
-            json: false,
-            no_ingest: true,
-            include_sidechain: true,
-        };
-        let report = report(&burn, &env);
+        let report = report(&burn, &env(&paths, &config));
 
         let mut human = Vec::new();
         write_report(&mut human, &report, false, Style::plain()).unwrap();

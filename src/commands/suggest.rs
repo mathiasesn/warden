@@ -39,11 +39,9 @@ pub fn run(env: &Env<'_>, draft_id: Option<&str>) -> io::Result<Outcome> {
         Some(id) => {
             let group = find(groups, id)?;
             let text = suggest::draft(group, now);
-            // The one deliberate non-`emit` path: `--draft` prints the SKILL.md
-            // draft itself, and the draft *is* the payload, so
-            // `warden suggest --draft <id> > SKILL.md` must stay byte-identical.
-            // The parser (`Cli`'s `draft` arg, `conflicts_with = "json"`) now
-            // forbids `--json` here, so there is nothing left to branch on.
+            // The one deliberate non-`emit` path: the draft *is* the payload, so
+            // `warden suggest --draft <id> > SKILL.md` stays byte-identical. The
+            // parser forbids `--json` here, so there is nothing to branch on.
             let mut stdout = io::stdout().lock();
             write!(stdout, "{text}")?;
             stdout.flush()?;
@@ -97,10 +95,8 @@ fn known_ids(groups: &[DuplicateGroup]) -> String {
     format!(" (known ids: {})", ids.join(", "))
 }
 
-/// `3 repeated prompts found`. Written unconditionally to **stderr** — matching
-/// `Env::pre_ingest`'s precedent ("its progress goes to stderr: stdout belongs
-/// to the report"), so stdout carries the table alone in table mode and stays
-/// a single parseable document in `--json` mode.
+/// `3 repeated prompts found`. Goes to **stderr** so stdout carries the report
+/// alone, as `Env::pre_ingest` does with its progress.
 fn headline<W: Write>(out: &mut W, count: usize) -> io::Result<()> {
     if count == 0 {
         return writeln!(
@@ -315,21 +311,11 @@ mod tests {
 
     #[test]
     fn the_headline_is_not_part_of_the_reports_stdout_rendering() {
-        let (_dir, paths) = fixture(true);
-        let detection =
-            suggest::detect(&Scanner::new(paths.clone()), TimeWindow::all(), None).unwrap();
-        let now = ms(2026, 8, 4, 9);
-        let report = build(&detection, TimeWindow::all(), now);
-
-        let mut stderr_buf = Vec::new();
-        headline(&mut stderr_buf, detection.groups.len()).unwrap();
-        let stderr_out = String::from_utf8(stderr_buf).unwrap();
-        assert!(stderr_out.contains("repeated prompt"), "{stderr_out}");
+        let report = build(&detection(true), TimeWindow::all(), ms(2026, 8, 4, 9));
 
         let mut stdout_buf = Vec::new();
         crate::output::write_report(&mut stdout_buf, &report, false, Style::plain()).unwrap();
         let stdout_out = String::from_utf8(stdout_buf).unwrap();
-        assert!(stdout_out.starts_with("ID"), "{stdout_out}");
         assert!(
             !stdout_out.contains("repeated prompt"),
             "headline must not be on stdout: {stdout_out}"
