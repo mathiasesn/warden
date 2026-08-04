@@ -1,11 +1,11 @@
-//! The flat table renderer (MVP §3).
+//! The flat table renderer.
 //!
 //! Two rules earn this module its existence:
 //!
 //! - A cell is an enum, not a string. A report cannot accidentally hand the
 //!   renderer a `0` for a value its adapter cannot populate — it must say
-//!   [`Cell::Unsupported`], which renders as a dim `–` (MVP §3: "Reports grey
-//!   out unsupported columns rather than printing a misleading `0`").
+//!   [`Cell::Unsupported`], which renders as a dim `–`: unsupported columns are
+//!   greyed out rather than printing a misleading `0`.
 //! - Estimates are marked at the point of rendering: [`Cell::Money`] carries an
 //!   `estimated` flag, prints a trailing `~`, and triggers the legend footer.
 
@@ -72,7 +72,7 @@ impl Cell {
         Cell::Text(s.into())
     }
 
-    /// A cost estimate — the only kind warden produces (MVP §2.5).
+    /// A cost estimate — the only kind warden produces.
     pub fn money_est(amount: f64) -> Self {
         Cell::Money {
             amount,

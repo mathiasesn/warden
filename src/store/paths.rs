@@ -1,4 +1,4 @@
-//! Data-dir resolution and the monthly partition layout (MVP §2.1).
+//! Data-dir resolution and the monthly partition layout.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -176,7 +176,7 @@ fn home_dir() -> Result<PathBuf, io::Error> {
     })
 }
 
-/// Expand a leading `~` so config files can use the same notation as MVP §7.
+/// Expand a leading `~` so config files can use the same notation as the README.
 pub fn expand_tilde(path: &Path) -> Result<PathBuf, io::Error> {
     let Some(text) = path.to_str() else {
         return Ok(path.to_path_buf());

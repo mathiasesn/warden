@@ -1,4 +1,4 @@
-//! `~/.warden/config.toml` (MVP §7). Every field is optional and has a default.
+//! `~/.warden/config.toml`. Every field is optional and has a default.
 //!
 //! Pricing lives here and only here — the binary never hardcodes a rate, and an
 //! unpriced model yields `None` rather than a misleading `0.0`.
@@ -26,7 +26,7 @@ pub struct Config {
 pub struct General {
     /// Store location. `None` means "use the built-in default" (`~/.warden`).
     pub data_dir: Option<PathBuf>,
-    /// Store prompt text alongside `text_hash` (MVP §6).
+    /// Store prompt text alongside `text_hash`.
     pub index_prompt_text: bool,
 }
 
@@ -109,7 +109,7 @@ impl Config {
     /// Estimate cost in whole currency units for the given token counts.
     ///
     /// Returns `None` when the model has no configured price — callers must
-    /// propagate the absence rather than substituting `0.0` (MVP §2.5).
+    /// propagate the absence rather than substituting `0.0`.
     pub fn estimate_cost(&self, provider: &str, model: &str, tokens: TokenCounts) -> Option<f64> {
         self.pricing().estimate_cost(provider, model, tokens)
     }
@@ -118,7 +118,7 @@ impl Config {
     ///
     /// Reports price at *read* time, so they carry this rather than a borrow of
     /// the whole config: editing `config.toml` re-prices events that are already
-    /// in the store, without a re-ingest (MVP §2.5).
+    /// in the store, without a re-ingest.
     pub fn pricing(&self) -> Pricing {
         Pricing {
             table: self.pricing.clone(),

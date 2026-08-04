@@ -1,7 +1,7 @@
-//! `warden suggest` (MVP §3).
+//! `warden suggest`.
 //!
 //! Two modes over one detector: a list of repeated prompts, and the `SKILL.md`
-//! draft for one of them. The draft goes to **stdout and nowhere else** — MVP §3
+//! draft for one of them. The draft goes to **stdout and nowhere else** — warden
 //! is explicit that writing files waits for v0.2, so this module opens no file
 //! for writing and creates no directory.
 

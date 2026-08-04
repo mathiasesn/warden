@@ -30,9 +30,9 @@ python-source = "python"
 strip = true
 exclude = [
     "specs/**",
-    "docs/**",
     "assets/**",
     ".claude/**",
+    "ARCHI.md",
     "src/**/tests/**",
     "**/*.snap",
     "**/snapshots/**",

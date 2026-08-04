@@ -1,4 +1,4 @@
-//! `warden doctor` — "why is this number empty?" (MVP §3, §9).
+//! `warden doctor` — "why is this number empty?".
 //!
 //! Every blank column has exactly one of three causes, and doctor names all
 //! three: the adapter is not implemented, the adapter cannot populate that KPI

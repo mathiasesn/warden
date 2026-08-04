@@ -1,4 +1,4 @@
-//! Source adapters and the KPIs they can populate (MVP §3).
+//! Source adapters and the KPIs they can populate.
 //!
 //! An adapter turns one line of a vendor log into a normalized [`Event`]. It
 //! also *declares* which KPIs it is able to fill in, so reports can grey out a

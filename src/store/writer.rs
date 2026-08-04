@@ -1,6 +1,6 @@
 //! Append-only writer. Routes each record to its month partition and writes
 //! whole lines in a single call, so a concurrent reader never sees half a
-//! record except as a torn final line (MVP §5).
+//! record except as a torn final line.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -102,7 +102,7 @@ fn create_dir_private(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Store files hold prompt text; keep them owner-only too (MVP §6).
+/// Store files hold prompt text; keep them owner-only too.
 #[allow(unused_variables)]
 fn set_private(file: &File) -> io::Result<()> {
     #[cfg(unix)]

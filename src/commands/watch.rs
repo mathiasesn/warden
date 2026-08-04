@@ -1,12 +1,12 @@
-//! `warden watch` (MVP §3, build-order step 10 — the nice-to-have).
+//! `warden watch` — the nice-to-have, built last.
 //!
-//! MVP ships the `--oneline` form only: one status-bar line, computed from the
+//! warden ships the `--oneline` form only: one status-bar line, computed from the
 //! current month's partition, then exit. That is the shape a tmux `status-right`
 //! actually wants, and it is honest about cost — a refresh is one bounded scan.
 //!
 //! The streaming form is deliberately absent rather than half-built: doing it
-//! properly means tailing the partition from a byte offset instead of rescanning
-//! (MVP §2.4), and that is not MVP work. It says so rather than pretending.
+//! properly means tailing the partition from a byte offset instead of rescanning,
+//! and that is not in scope yet. It says so rather than pretending.
 
 use std::io::{self, Write};
 

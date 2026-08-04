@@ -1,4 +1,4 @@
-//! The JSONL event store (MVP §2). Append-only, monthly partitions, no database.
+//! The JSONL event store. Append-only, monthly partitions, no database.
 //!
 //! `scanner` is the single read path; nothing outside this module opens event
 //! files directly.

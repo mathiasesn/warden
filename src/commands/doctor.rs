@@ -1,4 +1,4 @@
-//! `warden doctor` (MVP §3).
+//! `warden doctor`.
 
 use std::fmt::Write as _;
 use std::io;
@@ -12,7 +12,7 @@ use crate::output::{emit, Report};
 /// Inspect every adapter and the store, then say why each number is empty.
 ///
 /// Goes out through [`emit`], so `--json` is the versioned envelope and nothing
-/// else (MVP §5). The notes carry the explanations §3 requires doctor to keep
+/// else. The notes carry the explanations doctor is required to keep
 /// surfacing; the store row carries the store stats.
 pub fn run(env: &Env<'_>) -> io::Result<DoctorReport> {
     let report = doctor::run(env.config, env.paths, env.window, env.project)?;
@@ -73,7 +73,7 @@ fn notes(report: &DoctorReport) -> Vec<String> {
 
 fn to_report(report: &DoctorReport, window: TimeWindow) -> Report {
     // Rows are discriminated by `kind` rather than split across envelope
-    // fields: the envelope's shape is fixed (MVP §5).
+    // fields: the envelope's shape is fixed.
     let mut rows: Vec<serde_json::Value> = report.adapters.iter().map(adapter_row).collect();
     let store = &report.store;
     rows.push(serde_json::json!({
@@ -240,7 +240,7 @@ mod tests {
             "{out}"
         );
         assert!(out.contains("41,200 events"), "{out}");
-        // MVP §3: doctor keeps naming both causes of a blank column.
+        // doctor keeps naming both causes of a blank column.
         assert!(
             out.contains("note: claude-code does not log duration"),
             "{out}"

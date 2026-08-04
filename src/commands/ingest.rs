@@ -1,4 +1,4 @@
-//! `warden ingest` (MVP §3).
+//! `warden ingest`.
 
 use std::io::{self, Write};
 
@@ -12,7 +12,7 @@ use crate::store::StorePaths;
 /// Ingest every enabled source, then report what it did.
 ///
 /// Goes out through [`emit`] like every other command, so `--json` is the
-/// versioned envelope and nothing else (MVP §5).
+/// versioned envelope and nothing else.
 pub fn run(env: &Env<'_>) -> io::Result<IngestReport> {
     let report = run_quiet(env.config, env.paths, env.window, env.project)?;
     emit(&to_report(&report, env.window), env.json)?;
@@ -42,7 +42,7 @@ pub fn write_lines<W: Write>(out: &mut W, report: &IngestReport) -> io::Result<(
     write!(out, "{}", text(report))
 }
 
-/// One row per adapter, plus the cursor note — the shape MVP §3 prints.
+/// One row per adapter, plus the cursor note.
 fn text(report: &IngestReport) -> String {
     let mut out = String::new();
     for adapter in &report.adapters {

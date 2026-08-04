@@ -1,4 +1,4 @@
-//! `warden query` (MVP §3).
+//! `warden query`.
 
 use crate::output::{emit, Report};
 use crate::reports::query::{self, DEFAULT_GROUP_BY};

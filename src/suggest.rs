@@ -1,4 +1,4 @@
-//! Exact-duplicate prompt detection (MVP §3).
+//! Exact-duplicate prompt detection.
 //!
 //! One detector, deliberately: prompts are grouped by `text_hash` and nothing
 //! else. No embeddings, no fuzzy matching, and therefore no false positives —
@@ -357,7 +357,7 @@ pub fn format_age(now_ms: i64, then_ms: i64) -> String {
     }
 }
 
-/// The `SKILL.md` a `--draft` prints. Returned as a string: MVP §3 is explicit
+/// The `SKILL.md` a `--draft` prints. Returned as a string: the scope is explicit
 /// that warden does not write it anywhere.
 pub fn draft(group: &DuplicateGroup, now_ms: i64) -> String {
     let name = group
@@ -389,7 +389,7 @@ pub fn draft(group: &DuplicateGroup, now_ms: i64) -> String {
     format!(
         "---\nname: {name}\ndescription: Repeated prompt detected by warden ({} occurrences, \
          last {age}).\n---\n\n{body}\n<!-- warden: id {} · text_hash {} · this draft was printed, \
-         not written; MVP does not create files -->\n",
+         not written; warden does not create files -->\n",
         group.count, group.id, group.text_hash
     )
 }

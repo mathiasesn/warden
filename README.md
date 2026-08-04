@@ -324,8 +324,8 @@ One adapter (Claude Code), because normalizing a second harness only proves the
 event shape is right if the first one is already carrying real load. Codex and
 Cursor adapters, skill *writing* (staged, with a diff and a confirmation), an
 MCP server so a harness can query the store as a tool rather than by shelling
-out, and prompt clustering beyond exact matches are all deferred; see
-`docs/MVP.md` §10 for the order and the reasoning.
+out, and prompt clustering beyond exact matches are all deferred, roughly in
+that order.
 
 ## Licence
 

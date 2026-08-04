@@ -1,7 +1,7 @@
-//! `warden purge --prompts` (MVP §6).
+//! `warden purge --prompts`.
 //!
 //! The store is append-only; purge is one of the very few commands that removes
-//! anything. MVP §6 therefore asks for two properties, and this module exists to
+//! anything. Privacy therefore asks for two properties, and this module exists to
 //! guarantee them:
 //!
 //! - **Explicit.** Nothing is removed without `--yes` or an interactive `y/N`.

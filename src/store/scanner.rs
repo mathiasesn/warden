@@ -1,4 +1,4 @@
-//! The shared read path (MVP §8 step 4).
+//! The shared read path.
 //!
 //! Every report consumes this scanner and nothing else opens event files
 //! directly — that is what keeps a derived cache addable later without touching
@@ -221,7 +221,7 @@ mod tests {
         let (_dir, paths) = store_with_three_months();
         let partition = paths.event_partition(Partition::new(2026, 8));
         let mut text = std::fs::read_to_string(&partition).unwrap();
-        // A reader that hits a half-written record must skip it (MVP §5).
+        // A reader that hits a half-written record must skip it.
         text.push_str("{\"v\":1,\"id\":\"torn\",\"ts\":17543000");
         std::fs::write(&partition, text).unwrap();
 

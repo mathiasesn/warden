@@ -21,7 +21,7 @@ use crate::cli::TimeWindow;
 /// can do its own arithmetic on it.
 #[derive(Debug, Clone)]
 pub struct Report {
-    /// The stable report name, e.g. `"projects"` (MVP §3).
+    /// The stable report name, e.g. `"projects"`.
     pub name: String,
     pub window: TimeWindow,
     pub table: Table,

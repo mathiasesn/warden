@@ -9,7 +9,7 @@ readme = "README.md"
 keywords = ["cli", "claude-code", "analytics", "logs", "agent"]
 categories = ["command-line-utilities", "development-tools"]
 rust-version = "1.87"
-exclude = ["specs/", "docs/", "assets/", ".claude/"]
+exclude = ["specs/", "assets/", ".claude/", "ARCHI.md"]
 
 [lib]
 name = "warden"

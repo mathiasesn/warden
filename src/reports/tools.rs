@@ -4,8 +4,8 @@
 //! The ingested event carries the `tool_use` blocks a model emitted; it does not
 //! carry the tool *result*, so whether a call succeeded is not in the store.
 //! A `0%` failure rate would be a fabrication, so the column renders `–` and a
-//! note says why (MVP §3: "Reports grey out unsupported columns rather than
-//! printing a misleading `0`").
+//! note says why: unsupported columns are greyed out rather than printing a
+//! misleading `0`.
 
 use std::collections::BTreeMap;
 

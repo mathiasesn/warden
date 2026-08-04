@@ -1,7 +1,7 @@
-//! `warden report <name>` (MVP §3).
+//! `warden report <name>`.
 //!
 //! Two responsibilities beyond picking a report: run the implicit ingest first
-//! (MVP §3: "Runs implicitly before any report unless `--no-ingest`"), and keep
+//! (a report runs an implicit ingest first unless `--no-ingest`), and keep
 //! its progress off stdout so `--json` stays a single parseable document.
 
 use crate::output::{emit, Report};

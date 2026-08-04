@@ -1,10 +1,10 @@
-//! `warden query` — a general rollup over named dimensions (MVP §3).
+//! `warden query` — a general rollup over named dimensions.
 //!
 //! This is the escape valve from the fixed report set: `--group-by
 //! project,model` answers a question no named report does. It is deliberately
 //! narrow — a closed list of dimensions, no filters beyond the global ones —
-//! because a real query language would freeze the record shape (MVP §3: "Not
-//! arbitrary queries").
+//! because a real query language would freeze the record shape — warden offers a
+//! fixed rollup, not arbitrary queries.
 
 use std::collections::BTreeMap;
 

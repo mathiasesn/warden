@@ -1,4 +1,4 @@
-//! `warden report projects` — tokens and est. cost per project (MVP §3).
+//! `warden report projects` — tokens and est. cost per project.
 
 use crate::output::{Cell, Report, Table};
 use crate::store::Scanner;

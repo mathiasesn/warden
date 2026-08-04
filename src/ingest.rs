@@ -1,4 +1,4 @@
-//! Resumable, idempotent ingest (MVP §2.3, §3).
+//! Resumable, idempotent ingest.
 //!
 //! Three properties matter, and each is bought by one mechanism:
 //!
@@ -10,7 +10,7 @@
 //! * **Crash safety** — a cursor is written only after a file has been read to
 //!   its last complete line. An interrupted run therefore replays from the last
 //!   committed offset, and the replay dedupes, so an interrupted-then-resumed
-//!   run and an uninterrupted one produce the same store (MVP §9).
+//!   run and an uninterrupted one produce the same store.
 //!
 //! A partial trailing line (a writer caught mid-append) is never consumed: it
 //! is reported as skipped for this run and picked up once it is complete.
@@ -52,7 +52,7 @@ impl Default for IngestOptions {
     }
 }
 
-/// What one adapter did, in the shape MVP §3 prints.
+/// What one adapter did, in the shape `warden ingest` prints.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AdapterIngest {
     pub adapter: String,
@@ -299,8 +299,7 @@ fn apply_usage(event: &mut Event, key: Option<&str>, state: &mut StoreState, con
     }
 }
 
-/// `text_hash` is always stored so duplicate detection survives with text off
-/// (MVP §6).
+/// `text_hash` is always stored so duplicate detection survives with text off.
 fn prompt_record(event: &Event, text: Option<&str>, config: &Config) -> Option<PromptRecord> {
     let text = text?;
     Some(PromptRecord {

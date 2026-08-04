@@ -1,4 +1,4 @@
-//! Content-derived event ids, so re-ingest dedupes (MVP §2.3).
+//! Content-derived event ids, so re-ingest dedupes.
 //!
 //! The id is a truncated SHA-256 over the identifying parts of an event, joined
 //! with a separator that cannot appear in a length-prefixed encoding. It is

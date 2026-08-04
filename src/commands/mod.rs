@@ -37,7 +37,7 @@ pub struct Env<'a> {
 impl Env<'_> {
     /// The reporting context, priced from the *current* config: cost is derived
     /// at read time, so an edit to `[pricing.*]` re-prices the store on the next
-    /// report rather than only on newly ingested events (MVP §2.5).
+    /// report rather than only on newly ingested events.
     pub fn ctx(&self) -> ReportCtx {
         ReportCtx::new(
             self.window,
@@ -47,7 +47,7 @@ impl Env<'_> {
         .with_pricing(self.config.pricing())
     }
 
-    /// The implicit ingest before a report (MVP §3), unless `--no-ingest`.
+    /// The implicit ingest before a report, unless `--no-ingest`.
     ///
     /// Its progress goes to **stderr**: stdout belongs to the report, and in
     /// `--json` mode it must stay a single parseable document.

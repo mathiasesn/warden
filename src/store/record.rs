@@ -1,4 +1,4 @@
-//! Normalized record shapes (MVP §2.2, §2.3).
+//! Normalized record shapes.
 //!
 //! Fields an adapter cannot populate are `Option` and serialize as absent, so a
 //! reader can tell "not supported" from "genuinely zero".
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub const RECORD_VERSION: u32 = 1;
 
 /// One normalized event. Unknown fields are tolerated on read so newer stores
-/// can be consumed by older binaries (MVP §5).
+/// can be consumed by older binaries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     /// Record schema version, per line.
@@ -125,7 +125,7 @@ impl ToolCall {
 }
 
 /// Prompt text, kept out of `events/` so it can be disabled independently.
-/// `text_hash` is always written so dedup works with text off (MVP §2.3).
+/// `text_hash` is always written so dedup works with text off.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PromptRecord {
     pub event_id: String,

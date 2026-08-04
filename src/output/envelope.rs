@@ -1,4 +1,4 @@
-//! The versioned `--json` envelope (MVP §5).
+//! The versioned `--json` envelope.
 //!
 //! Compatibility contract, and the reason this type is centralized:
 //!
@@ -49,7 +49,7 @@ pub fn iso8601_ms(ts_ms: i64) -> Option<String> {
     Utc.timestamp_millis_opt(ts_ms).single().map(iso8601)
 }
 
-/// The one shape every `--json` response has (MVP §5).
+/// The one shape every `--json` response has.
 ///
 /// `rows` is `Value` rather than a typed row: the row shape is per report and
 /// may gain fields freely, so the envelope stays report-agnostic.

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use clap::{Parser, Subcommand};
 
-/// Top-level CLI. Global flags apply to every subcommand (MVP §3).
+/// Top-level CLI. Global flags apply to every subcommand.
 #[derive(Debug, Parser)]
 #[command(
     name = "warden",
@@ -101,7 +101,7 @@ impl Command {
 /// A half-open `[from, to)` window in epoch milliseconds.
 ///
 /// Every read path takes one of these; it is what lets the scanner open only
-/// the partitions that overlap the requested period (MVP §2.1).
+/// the partitions that overlap the requested period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeWindow {
     /// Inclusive lower bound, epoch ms.

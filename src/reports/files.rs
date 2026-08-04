@@ -1,4 +1,4 @@
-//! `warden report files` — *attributed* tokens per file (MVP §4).
+//! `warden report files` — *attributed* tokens per file.
 //!
 //! No log records "this file consumed N tokens". This report derives it:
 //!
@@ -9,7 +9,7 @@
 //! That is a heuristic and it is labelled as one everywhere it surfaces: the
 //! columns say `attrib.`, the notes say `attributed, not measured`, and every
 //! JSON row carries `"method": "even-split"` so a consumer can tell without
-//! reading this file (MVP §4).
+//! reading this file.
 
 use std::collections::BTreeMap;
 

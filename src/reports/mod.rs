@@ -1,7 +1,7 @@
-//! The named reports (MVP §3) and the rollup behind `warden query`.
+//! The named reports and the rollup behind `warden query`.
 //!
 //! Every report in here is a pure consumer of [`crate::store::Scanner`] — none
-//! of them opens an event file itself (MVP §8 step 4). A report's whole job is
+//! of them opens an event file itself. A report's whole job is
 //! to turn a window of events into a [`Report`]; whether that reaches a terminal
 //! or a harness is [`crate::output`]'s problem.
 //!
@@ -40,7 +40,7 @@ use crate::store::{Event, ScanQuery, Scanner};
 /// from cost (see [`Cost::add`]).
 pub const SYNTHETIC_MODEL: &str = "<synthetic>";
 
-/// The named reports, in the order MVP §3 lists them.
+/// The named reports, in their documented order.
 pub const NAMES: [&str; 7] = [
     "summary", "projects", "models", "sessions", "tools", "compare", "files",
 ];
@@ -54,7 +54,7 @@ pub struct ReportCtx {
     pub include_sidechain: bool,
     /// The price table as it is *now*. Cost is derived at read time from this
     /// and the event's stored token counts, so editing `config.toml` re-prices
-    /// the existing store without a re-ingest (MVP §2.5).
+    /// the existing store without a re-ingest.
     pub pricing: Pricing,
 }
 
@@ -181,7 +181,7 @@ pub fn scan(scanner: &Scanner, ctx: &ReportCtx) -> Result<Scanned, ReportError> 
 /// Running cost for one bucket.
 ///
 /// `priced` and `unpriced` are counted separately so a bucket whose model has no
-/// configured rate renders as `–` instead of `$0.00` (MVP §2.5).
+/// configured rate renders as `–` instead of `$0.00`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Cost {
     pub total: f64,
@@ -252,7 +252,7 @@ impl Cost {
 /// The config wins; `cost_est` on the record is a cache, used only when the
 /// config has no rate for that model. That is what makes editing `config.toml`
 /// take effect without a re-ingest, while keeping the JSONL self-describing for
-/// `jq` users. `None` — never `0.0` — when neither can price it (MVP §2.5).
+/// `jq` users. `None` — never `0.0` — when neither can price it.
 pub fn event_cost(event: &Event, pricing: &Pricing) -> Option<f64> {
     let model = event.model.as_deref()?;
     pricing
