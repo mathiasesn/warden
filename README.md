@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/warden-logo-white.svg">
-    <img src="assets/logo/warden-logo-black.svg" width="420" alt="warden">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mathiasesn/warden/main/assets/logo/warden-logo-white.svg">
+    <img src="https://raw.githubusercontent.com/mathiasesn/warden/main/assets/logo/warden-logo-black.svg" width="420" alt="warden">
   </picture>
 </p>
 
@@ -54,6 +54,10 @@ crates.io) but the installed command is `warden` either way:
 cargo install warden-cli   # needs a Rust toolchain
 # or
 uv tool install warden-cli # no Rust toolchain required
+# or
+uvx --from warden-cli warden # run without installing (bare `uvx warden-cli`
+                              # won't work: uvx requires the command name to
+                              # match the package name, and it's `warden`)
 
 warden doctor              # what can warden see?
 warden ingest              # read the logs, append new events

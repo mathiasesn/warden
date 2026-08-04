@@ -9,6 +9,8 @@ name: Release PyPI
 # the most fragile piece of this pipeline and only exercises against a real
 # tag, so if it fails after the crates.io publish has already gone out, this
 # workflow must be re-runnable without minting a new version to retry.
+# `workflow_dispatch` against a branch builds that branch, not the tag — it
+# only reproduces the tagged build while the branch and tag still agree.
 on:
   push:
     tags:
@@ -106,7 +108,6 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs: [sdist, linux, macos, windows]
-    environment: pypi
     permissions:
       # PyPI Trusted Publishing (OIDC): the publisher is configured once on
       # PyPI against this repo + workflow, so no long-lived PYPI_API_TOKEN
@@ -124,3 +125,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          # Re-running after a partial matrix failure re-uploads filenames
+          # PyPI already has; skip them instead of failing with a 400.
+          skip-existing: true
