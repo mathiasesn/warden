@@ -75,7 +75,7 @@ write and reads `~/.claude/projects` strictly read-only.
 | command | what it does |
 |---|---|
 | `warden ingest` | Scan sources from the last cursor, normalize, append. Idempotent — event ids are content-derived, so re-running (or interrupting and re-running) changes nothing. Runs implicitly before any report unless `--no-ingest`. |
-| `warden report <name>` | One of seven named reports (below). |
+| `warden report <name>` | One of the named reports (below). |
 | `warden query --group-by <dims>` | Ad-hoc rollup over `project`, `model`, `agent`, `day`, … |
 | `warden suggest` | Prompts you have sent more than once, byte-for-byte. |
 | `warden suggest --draft <id>` | Print a `SKILL.md` draft for one of them, **to stdout only**. |

@@ -1,6 +1,6 @@
 # warden Architecture Documentation
 
-> Generated: 2026-08-04 · Commit: 4e02905 · Version: 0.1.0 (crate `warden-cli`, binary `warden`)
+> Generated: 2026-08-04 · Commit: f621965 · Version: 0.1.0 (crate `warden-cli`, binary `warden`)
 > Re-read this file at the start of any session touching this codebase. Update it when the architecture changes (new adapter, new report, changed record shape, restructured layer).
 
 ## 1. How to Read This Document
@@ -54,8 +54,14 @@ src/
 python/warden/        wheel-only launcher: __main__.py execs the binary,
                       _find_warden.py locates it via the dist's RECORD
 python/tests/         pytest suite for the discovery shim
-specs/                per-change specs (excluded from the crate and wheel)
+assets/             † logo/favicon images for repo branding
+.claude/            † local Claude Code settings
+specs/              † per-change specs
+ARCHI.md            † this file
+AGENTS.md           † procedure companion to this file
 ```
+
+† excluded from both the crate and the wheel (`Cargo.toml`'s `exclude`, `[tool.maturin]`'s `exclude`).
 
 Organizing principle: **one direction of dependency.** `cli → commands → {reports, suggest, doctor, ingest} → store → adapters/config`. Nothing lower reaches back up; nothing outside `store::scanner` opens an event file.
 
@@ -78,9 +84,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
-Python-side (second CI job, ubuntu only): `uv venv .venv && uv pip install --python .venv/bin/python .` then `.venv/bin/python -m pytest python/tests -q`. That job also asserts the wheel's version, `warden --version`, and `python -m warden --version` all match the crate version — maturin resolving the version from `Cargo.toml` is a load-bearing invariant, not incidental.
+Python-side (second CI job, ubuntu only): `uv venv .venv && uv pip install --python .venv/bin/python .` then `uv pip install --python .venv/bin/python pytest` then `.venv/bin/python -m pytest python/tests -q`. That job also asserts the wheel's version, `warden --version`, and `python -m warden --version` all match the crate version — maturin resolving the version from `Cargo.toml` is a load-bearing invariant, not incidental.
 
-**Testing conventions:** every test is an inline `#[cfg(test)] mod tests` in the file it covers (165 tests; no `tests/` directory). Fixtures come from two crate-internal helpers, `reports::testkit` and `suggest::testkit`, which build `Event`s and temp stores — use them rather than hand-rolling a store. Tests must render with `Style::plain()` so no ANSI leaks into assertions.
+**Testing conventions:** every test is an inline `#[cfg(test)] mod tests` in the file it covers (no `tests/` directory for Rust integration tests). Fixtures come from two crate-internal helpers, `reports::testkit` and `suggest::testkit`, which build `Event`s and temp stores — use them rather than hand-rolling a store. Tests must render with `Style::plain()` so no ANSI leaks into assertions.
 
 **Release pipeline** (`.github/workflows/`): `release-plz.yml` on push to `main` opens/updates a release PR and, once merged, publishes to crates.io and pushes a `v*` tag; that tag triggers `release-pypi.yml`, which builds the wheel matrix (manylinux/musllinux × x86_64/aarch64, macOS, Windows) plus an sdist and publishes via PyPI Trusted Publishing. The workflows carry long comments explaining why specific choices are load-bearing (the `RELEASE_PLZ_TOKEN`, the absent `dry_run` input, separate caches) — read them before editing; they are warnings, not commentary.
 
@@ -112,7 +118,7 @@ Global flags apply to every subcommand: `--json`, `--since <7d|24h|90m|2w|2026-0
 | Command | Notes |
 |---|---|
 | `ingest` | Scan sources, append new events. Runs implicitly before every report unless `--no-ingest`; its progress goes to **stderr** so stdout stays one parseable document. |
-| `report <name>` | One of exactly seven: `summary`, `projects`, `models`, `sessions`, `tools`, `compare`, `files` (`reports::NAMES`). `compare` is the one report needing a bounded window. |
+| `report <name>` | One of the fixed set named in `reports::NAMES`: `summary`, `projects`, `models`, `sessions`, `tools`, `compare`, `files`. `compare` is the one report needing a bounded window. |
 | `query --group-by <dims>` | Rollup over `project`, `model`, `agent`, `provider`, `day`, `session`, `role`. |
 | `watch --oneline` | Single status-bar line (tmux). Only `--oneline` ships in 0.1.0; the streaming form says so rather than faking it. |
 | `suggest [--draft <id>]` | Repeated prompts; `--draft` prints a `SKILL.md` to **stdout and writes nothing**. |
@@ -153,6 +159,8 @@ Committed compatibility contract (applies to both the record and the `--json` en
 
 `claude_code.rs` is the only real adapter: it reads `~/.claude/projects/**/*.jsonl` through `serde_json::Value`, ingests only `assistant` and `user` records, skips unknown record types without counting them as unparseable, and does **not** declare `DurationMs` because Claude Code logs no per-turn wall clock. Codex and Cursor are registered as `NotImplementedAdapter` stubs so `doctor` can say so out loud. The transcript schema is undocumented and drifts, so keep this parser tolerant: skip and count, never fail the run.
 
+**Conventions to follow when adding an adapter:** implement the `Adapter` trait (`src/adapters/mod.rs`) for the new source. Declare exactly the `Kpi`s that source can actually populate as its `Capabilities`: under-declaring greys out a column it could have filled, over-declaring prints a number the source never really gave you. Then register it in `adapters::registry()` — every report and `doctor` depend on that call to see the adapter at all, and it is easy to miss because everything else about the adapter works without it.
+
 ## 11. Reports, Honesty Rules, and Suggest
 
 `reports::mod` enforces three rules centrally rather than per report: an underivable figure is `Cell::Unsupported`; an absent token count contributes nothing (usage is logged once per request, not repeated on siblings) and `Notes` reports how many records carried usage; and anything that would make a number irreconcilable — sidechain events, unpriced models, skipped lines — becomes a note. Estimated money prints with a trailing `~` and a legend; a row mixing priced and unpriced models is marked `~+` (partial), not totalled as if complete. `SYNTHETIC_MODEL` (`<synthetic>`) counts toward volume but is excluded from cost. Sidechain (subagent) events are **included by default** — they are real spend.
@@ -165,7 +173,7 @@ Committed compatibility contract (applies to both the record and the `--json` en
 - **Read-only against source logs.** Only `~/.warden/` is written.
 - **`None`/absent, never `0`,** for anything warden cannot derive — in records, JSON, and tables.
 - **`store::Scanner` is the only read path** over `events/`; `output::emit` is the only `--json` branch.
-- **The seven named reports are a fixed set**; arbitrary grouping lives in `query`.
+- **The named reports (`reports::NAMES`) are a fixed set**; arbitrary grouping lives in `query`.
 - **Pricing comes only from `config.toml`,** applied at read time; no prices in the binary.
 - **Record and envelope fields may be added, never renamed/retyped/removed** without bumping `RECORD_VERSION`.
 - **Ingest must stay idempotent and resumable**; never write a cursor for a partially-ingested file.

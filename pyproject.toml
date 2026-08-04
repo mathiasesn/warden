@@ -33,6 +33,7 @@ exclude = [
     "assets/**",
     ".claude/**",
     "ARCHI.md",
+    "AGENTS.md",
     "src/**/tests/**",
     "**/*.snap",
     "**/snapshots/**",
