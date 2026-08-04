@@ -11,3 +11,13 @@ debug/
 # Cursor
 .cursor/
 .cursorindexingignore
+
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+/dist/
+.pytest_cache/

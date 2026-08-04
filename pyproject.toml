@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.9,<2", "patchelf; sys_platform == 'linux'"]
+build-backend = "maturin"
+
+[project]
+name = "warden-cli"
+description = "A local, read-only CLI that analyzes your coding agent's session logs and turns that analysis into skills, slash commands, and prompts."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dynamic = ["version"]
+keywords = ["cli", "claude-code", "analytics", "logs", "agent"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/mathiasesn/warden"
+
+[tool.maturin]
+bindings = "bin"
+python-source = "python"
+strip = true
+exclude = [
+    "specs/**",
+    "docs/**",
+    "assets/**",
+    ".claude/**",
+    "src/**/tests/**",
+    "**/*.snap",
+    "**/snapshots/**",
+]
