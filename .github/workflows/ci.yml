@@ -33,6 +33,27 @@ jobs:
       - name: Build & test
         run: cargo test --all-features
 
+  msrv:
+    name: MSRV (1.87)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (1.87)
+        uses: dtolnay/rust-toolchain@1.87
+
+      # Its own distinct cache, not the `check` job's: this job pins an older
+      # toolchain than stable, so sharing a key would warm nothing here and
+      # would make the two jobs race to save the same key — the loser's
+      # artifacts are discarded and the next run recompiles from scratch.
+      - name: Cache cargo build (msrv)
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: msrv-1.87
+
+      - name: Check (build-only; cargo test --all-features already runs on stable)
+        run: cargo check --all-features
+
   python-packaging:
     name: python packaging (maturin, ubuntu-only)
     runs-on: ubuntu-latest
