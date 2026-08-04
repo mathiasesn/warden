@@ -5,8 +5,17 @@
   </picture>
 </p>
 
-A local, read-only CLI that reads your coding agent's session logs and tells you
-how you actually spend tokens, prompts, and context.
+A local, read-only CLI that analyzes how you use your coding agent harness —
+Claude Code today, Codex and Cursor next — and turns that analysis into
+something the harness can act on: skills, slash commands, prompts.
+
+Two halves, in order. First warden reads the harness's own session logs and
+normalizes them into a store you own, so questions like *where do the tokens
+go*, *which files are expensive*, *which tools fail* have answers instead of
+guesses. Then it reads that store back the other way: the work you repeat by
+hand is exactly the work that should have been a skill, and warden is the thing
+that can see the repetition because it is the only thing holding the whole
+history.
 
 ```
 $ warden report projects --since 7d
@@ -29,7 +38,9 @@ logo                               1      15    2.0k   355.6k          –
 **warden is not a harness.** It never calls a model provider, never needs an API
 key, and contains no network code — not as a setting, but as an absence. It
 reads logs, normalizes them into a JSONL store you own, and answers questions
-about them.
+about them. Everything it produces for a harness — a `SKILL.md` draft, a
+report, a JSON envelope — is text on stdout that you or your agent decide what
+to do with.
 
 The `–` in that table is deliberate: it means *this source cannot tell me*, not
 zero. `warden doctor` explains every one of them.
@@ -111,6 +122,26 @@ Ids come from the prompt's hash, so they are stable across runs and machines.
 Groups that are only the client's own transcript furniture — slash-command
 expansions, compaction notices, interrupt markers — are set aside and counted in
 the notes rather than suggested at you.
+
+### Feeding the analysis back to the harness
+
+`suggest` is the first of these, not the only one intended. The store already
+holds what the rest need — tool call sequences, failure rates, which files a
+project keeps returning to — and each future detector is the same shape:
+read the store, find a pattern that a skill or a command would have collapsed,
+print a draft.
+
+Because every command takes `--json`, a harness can drive this itself. An agent
+running `warden suggest --json --since 30d`, picking a group, and running
+`warden suggest --draft <id>` gets a `SKILL.md` on stdout with no network hop,
+no provider call, and nothing written to disk until it decides to write it. The
+division is deliberate: warden supplies evidence about your usage, the harness
+supplies the judgement about what to build from it.
+
+What warden will not do is decide for you. It has no notion of a "good" skill
+and does not rank one repetition as more worth automating than another beyond
+counting it, because that judgement depends on context only you and your agent
+have.
 
 ### `warden watch`
 
@@ -274,9 +305,14 @@ context, occasionally a credential someone pasted into a chat.
 
 ## Status
 
-0.1.0 — MVP. One adapter (Claude Code). Codex and Cursor adapters, skill
-*writing*, an MCP server, and prompt clustering are deferred; see `docs/MVP.md`
-§10 for the order and the reasoning.
+0.1.0 — MVP. The analysis half is real; the feedback half is one detector deep.
+
+One adapter (Claude Code), because normalizing a second harness only proves the
+event shape is right if the first one is already carrying real load. Codex and
+Cursor adapters, skill *writing* (staged, with a diff and a confirmation), an
+MCP server so a harness can query the store as a tool rather than by shelling
+out, and prompt clustering beyond exact matches are all deferred; see
+`docs/MVP.md` §10 for the order and the reasoning.
 
 ## Licence
 
