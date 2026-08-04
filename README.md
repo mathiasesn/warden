@@ -5,6 +5,14 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://crates.io/crates/warden-cli"><img src="https://img.shields.io/crates/v/warden-cli.svg?logo=rust&logoColor=white" alt="crates.io"></a>
+  <a href="https://pypi.org/project/warden-cli/"><img src="https://img.shields.io/pypi/v/warden-cli.svg?logo=pypi&logoColor=white" alt="PyPI"></a>
+  <a href="https://github.com/mathiasesn/warden/blob/main/LICENSE"><img src="https://img.shields.io/crates/l/warden-cli.svg" alt="MIT licence"></a>
+  <img src="https://img.shields.io/badge/rustc-1.87%2B-orange.svg?logo=rust&logoColor=white" alt="MSRV 1.87">
+  <a href="https://github.com/mathiasesn/warden/actions/workflows/ci.yml"><img src="https://github.com/mathiasesn/warden/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
 A local, read-only CLI that analyzes how you use your coding agent harness —
 Claude Code today, Codex and Cursor next — and turns that analysis into
 something the harness can act on: skills, slash commands, prompts.
