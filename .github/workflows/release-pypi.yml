@@ -1,0 +1,126 @@
+name: Release PyPI
+
+# Triggered by the tag release-plz pushes on a successful crates.io release,
+# so a version only reaches PyPI after it has already reached crates.io. This
+# only works because release-plz.yml's release job pushes that tag using
+# RELEASE_PLZ_TOKEN rather than the default GITHUB_TOKEN — GitHub's loop
+# prevention would otherwise silently swallow the trigger. `workflow_dispatch`
+# is also wired up: the wheel matrix (cross-compiled aarch64, musllinux) is
+# the most fragile piece of this pipeline and only exercises against a real
+# tag, so if it fails after the crates.io publish has already gone out, this
+# workflow must be re-runnable without minting a new version to retry.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  linux:
+    name: Build wheels (linux, ${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build manylinux wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: auto
+
+      - name: Build musllinux wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          manylinux: musllinux_1_2
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  macos:
+    name: Build wheels (macos, ${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: dist
+
+  windows:
+    name: Build wheels (windows, x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: dist
+
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [sdist, linux, macos, windows]
+    environment: pypi
+    permissions:
+      # PyPI Trusted Publishing (OIDC): the publisher is configured once on
+      # PyPI against this repo + workflow, so no long-lived PYPI_API_TOKEN
+      # secret needs to be stored or rotated.
+      id-token: write
+    steps:
+      - name: Download all wheels and sdist
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

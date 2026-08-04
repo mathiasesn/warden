@@ -1,0 +1,124 @@
+name: Release-plz
+
+on:
+  push:
+    branches:
+      - main
+
+# `release` and `release-pr` are independent, parallel jobs: `release`
+# publishes any version already merged to main, while `release-pr` prepares
+# the PR for the next one. Serialised on the branch so two pushes can't race
+# the tag or the PR update.
+concurrency:
+  group: release-plz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release-plz
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      # The &checkout anchor is aliased by the release-pr job so the two
+      # cannot drift on fetch-depth or persist-credentials. Cross-job YAML
+      # anchors are a recently-shipped GitHub Actions feature
+      # (actions/runner#1182, closed 2025-08-04) — not a mistake to "fix"
+      # back into duplicated steps.
+      - &checkout
+        name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # There is no rust-toolchain.toml in this repo for `rustup show` to
+      # read, so install the toolchain explicitly with dtolnay/rust-toolchain
+      # and track `stable`, matching ci.yml.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # `cargo publish` verifies the crate with a full build; without this
+      # every push to main pays a cold compile. Only the release job builds,
+      # so neither this nor the toolchain step is shared with release-pr —
+      # sharing them would also make both jobs race to save the same cache
+      # key, and the loser's artifacts are discarded.
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Fallback is load-bearing here specifically: merging a release PR
+          # always changes Cargo.lock (release-plz writes the version bump),
+          # so without restore-keys the one run that pays for a
+          # `cargo publish --verify` build is guaranteed a cold cache.
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # There is deliberately no `dry_run` input here. `release-plz/action@v0.5.131`
+      # guards the flag on string *emptiness*
+      # (`if [[ -n "${{ inputs.dry_run }}" ]]`, action.yml:115-119) and the
+      # input has no `default:` (action.yml:40-47), so even `dry_run: false`
+      # renders as the non-empty string "false" and `--dry-run` is still
+      # passed. warden-cli was bootstrapped to crates.io by hand at 0.1.0
+      # precisely because a dry run cannot rehearse a first publish. If you
+      # ever need to disable publishing, comment this step out; do NOT add
+      # `dry_run: false`.
+      #
+      # GITHUB_TOKEN here is RELEASE_PLZ_TOKEN, not the default token, and
+      # that is load-bearing: this step is what pushes the release's git tag,
+      # and `release-pypi.yml` triggers on `push: tags`. GitHub's loop
+      # prevention means events caused by the default GITHUB_TOKEN never fire
+      # workflow triggers — the same rule the release-pr job below relies on
+      # for PRs. Pushing the tag with the default token would make every
+      # crates.io release ship while the PyPI half silently never runs. Do
+      # not "simplify" this back to secrets.GITHUB_TOKEN.
+      - name: Release unpublished versions
+        uses: release-plz/action@v0.5.131
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-pr:
+    name: Release-plz PR
+    if: ${{ !github.event.repository.fork }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    # No toolchain or cache: release-pr derives version bumps and a
+    # changelog from cargo metadata and the registry index, and compiles
+    # nothing.
+    steps:
+      - *checkout
+
+      # RELEASE_PLZ_TOKEN is required, not optional: GitHub never fires
+      # workflow triggers for events caused by the default GITHUB_TOKEN (loop
+      # prevention), so a release PR opened with it arrives with zero CI
+      # checks — and that PR is the one whose merge publishes to crates.io.
+      # A fine-grained PAT with contents:write + pull_requests:write makes CI
+      # run on it normally, so it must be configured.
+      #
+      # No fallback and no fail-fast: the same PAT is now also load-bearing
+      # in the release job above (it's what makes the pushed tag trigger
+      # release-pypi.yml), so a missing RELEASE_PLZ_TOKEN doesn't fail quietly
+      # in one place — release-pr errors outright with an auth failure, and
+      # separately the release job's tag push, made with the default token,
+      # goes out without ever triggering the PyPI workflow. Both symptoms
+      # trace back to the same missing secret.
+      #
+      # No CARGO_REGISTRY_TOKEN here: opening the release PR only reads the
+      # public registry index, so the publish-capable secret stays scoped to
+      # the release job that actually publishes.
+      - name: Open or update the release PR
+        uses: release-plz/action@v0.5.131
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}

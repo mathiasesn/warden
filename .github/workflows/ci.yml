@@ -32,3 +32,72 @@ jobs:
 
       - name: Build & test
         run: cargo test --all-features
+
+  python-packaging:
+    name: python packaging (maturin, ubuntu-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      # Its own distinct cache, not the `check` job's: maturin builds
+      # --release while `check` only ever builds debug, so sharing a key
+      # would warm nothing here and would make the two jobs race to save the
+      # same key — the loser's artifacts are discarded and the next run
+      # recompiles from scratch.
+      - name: Cache cargo build (release)
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: maturin-release
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build and install warden from the checkout
+        run: |
+          set -euo pipefail
+          uv venv .venv
+          uv pip install --python .venv/bin/python .
+
+      - name: Verify installed CLI matches the crate version
+        run: |
+          set -euo pipefail
+
+          crate_version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "warden-cli") | .version')"
+          echo "crate version: $crate_version"
+
+          # The load-bearing assertion: maturin must resolve the version from
+          # Cargo.toml. If it silently stamps 0.0.0 instead, Cargo.toml has
+          # stopped being the single source of truth for the wheel.
+          dist_version="$(.venv/bin/python -c 'import importlib.metadata as m; print(m.version("warden-cli"))')"
+          echo "distribution version: $dist_version"
+          if [ "$dist_version" != "$crate_version" ]; then
+            echo "::error::wheel version '$dist_version' does not match crate version '$crate_version'"
+            exit 1
+          fi
+
+          bin_output="$(.venv/bin/warden --version)"
+          module_output="$(.venv/bin/python -m warden --version)"
+          echo "warden --version: $bin_output"
+          echo "python -m warden --version: $module_output"
+
+          if [ "$bin_output" != "$module_output" ]; then
+            echo "::error::'warden --version' ($bin_output) and 'python -m warden --version' ($module_output) disagree"
+            exit 1
+          fi
+
+          if [[ "$bin_output" != *"$crate_version"* ]]; then
+            echo "::error::reported version '$bin_output' does not contain crate version '$crate_version'"
+            exit 1
+          fi
+
+      # Runs after the version assertion, and installs into .venv explicitly
+      # rather than via `uv run`, so nothing re-syncs the environment the
+      # assertion above just verified.
+      - name: Test the discovery shim
+        run: |
+          set -euo pipefail
+          uv pip install --python .venv/bin/python pytest
+          .venv/bin/python -m pytest python/tests -q
