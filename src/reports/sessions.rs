@@ -13,11 +13,12 @@ use crate::adapters::Kpi;
 use crate::output::{Cell, Report, Table};
 use crate::store::Scanner;
 
-use super::{count, format_span, rollup, scan, short_id, ReportCtx, ReportError, Totals};
+use super::{
+    count, desc, format_span, rollup, scan, short_id, ReportCtx, ReportError, Totals, NO_PROJECT,
+};
 
 /// Sessions are long-tailed; the table shows the head and says so.
 const LIMIT: usize = 20;
-const NO_PROJECT: &str = "(no project)";
 
 pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> {
     let scanned = scan(scanner, ctx)?;
@@ -53,9 +54,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
                 t.total_tokens() as f64
             }
         };
-        key(&b.1)
-            .partial_cmp(&key(&a.1))
-            .unwrap_or(std::cmp::Ordering::Equal)
+        desc(key(&a.1), key(&b.1))
             .then_with(|| b.1.total_tokens().cmp(&a.1.total_tokens()))
             .then_with(|| a.0.cmp(&b.0))
     });

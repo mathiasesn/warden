@@ -13,6 +13,7 @@ use std::io::{self, Write};
 use chrono::Utc;
 
 use crate::output::{emit, format_count, Cell, Report, Table};
+use crate::reports::{count, format_span};
 use crate::store::{Partition, ScanQuery, Scanner};
 
 use super::Env;
@@ -91,7 +92,7 @@ pub fn burn(scanner: &Scanner, project: Option<&str>, now_ms: i64) -> io::Result
         std::collections::HashMap::new();
 
     scanner.scan_with(&query, |event| {
-        let tokens = tokens(&event);
+        let tokens = event.total_tokens();
         if event.ts >= now_ms - RATE_WINDOW_MS {
             recent_tokens += tokens;
         }
@@ -126,21 +127,12 @@ pub fn burn(scanner: &Scanner, project: Option<&str>, now_ms: i64) -> io::Result
     })
 }
 
-/// Every token the request consumed. Cache reads are the bulk of an agentic
-/// loop's volume, so a rate that excluded them would read far too low.
-fn tokens(event: &crate::store::Event) -> u64 {
-    event.input_tok.unwrap_or(0)
-        + event.output_tok.unwrap_or(0)
-        + event.cache_read_tok.unwrap_or(0)
-        + event.cache_write_tok.unwrap_or(0)
-}
-
 fn report(burn: &Burn, env: &Env<'_>) -> Report {
     let table = Table::new(["project", "tok/hr", "session", "session tokens"]).with_row(vec![
         Cell::text(burn.project.clone().unwrap_or_else(|| "(none)".into())),
-        Cell::Int(i64::try_from(burn.tokens_per_hour).unwrap_or(i64::MAX)),
-        Cell::text(crate::reports::format_span(burn.session_ms)),
-        Cell::Int(i64::try_from(burn.session_tokens).unwrap_or(i64::MAX)),
+        count(burn.tokens_per_hour),
+        Cell::text(format_span(burn.session_ms)),
+        count(burn.session_tokens),
     ]);
 
     Report::new("watch", env.window, table)

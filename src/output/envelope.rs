@@ -10,7 +10,7 @@
 //! - An unbounded end of the reporting period is reported as `null`, never as a
 //!   fabricated date.
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde::Serialize;
 
 use crate::cli::TimeWindow;
@@ -36,26 +36,39 @@ impl Period {
     }
 }
 
-fn iso8601(ts: DateTime<Utc>) -> String {
+/// The one timestamp rendering warden publishes. Every ISO-8601 string in a
+/// `--json` document — envelope period, note text, row fields — goes through
+/// here, so a consumer never sees two precisions in one response.
+pub fn iso8601(ts: DateTime<Utc>) -> String {
     ts.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-/// The one shape every `--json` response has.
+/// The same rendering from epoch millis, for timestamps that are not already
+/// bounded into a `DateTime`.
+pub fn iso8601_ms(ts_ms: i64) -> Option<String> {
+    Utc.timestamp_millis_opt(ts_ms).single().map(iso8601)
+}
+
+/// The one shape every `--json` response has (MVP §5).
 ///
-/// `rows` is deliberately generic: each report fills it with whatever row type
-/// it serializes, and the envelope stays report-agnostic.
+/// `rows` is `Value` rather than a typed row: the row shape is per report and
+/// may gain fields freely, so the envelope stays report-agnostic.
 #[derive(Debug, Clone, Serialize)]
-pub struct Envelope<R = serde_json::Value> {
+pub struct Envelope {
     pub warden_version: &'static str,
     pub record_version: u32,
     pub report: String,
     pub period: Period,
-    pub rows: Vec<R>,
+    pub rows: Vec<serde_json::Value>,
     pub notes: Vec<String>,
 }
 
-impl<R> Envelope<R> {
-    pub fn new(report: impl Into<String>, window: TimeWindow, rows: Vec<R>) -> Self {
+impl Envelope {
+    pub fn new(
+        report: impl Into<String>,
+        window: TimeWindow,
+        rows: Vec<serde_json::Value>,
+    ) -> Self {
         Self {
             warden_version: env!("CARGO_PKG_VERSION"),
             record_version: RECORD_VERSION,

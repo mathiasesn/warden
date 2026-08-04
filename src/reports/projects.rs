@@ -3,11 +3,7 @@
 use crate::output::{Cell, Report, Table};
 use crate::store::Scanner;
 
-use super::{by_weight_desc, count, rollup, scan, ReportCtx, ReportError};
-
-/// Events with no project are still real spend, so they get a row rather than
-/// being dropped.
-const UNATTRIBUTED: &str = "(no project)";
+use super::{by_weight_desc, count, rollup, scan, ReportCtx, ReportError, NO_PROJECT};
 
 pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> {
     let scanned = scan(scanner, ctx)?;
@@ -16,7 +12,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             event
                 .project
                 .clone()
-                .unwrap_or_else(|| UNATTRIBUTED.to_string()),
+                .unwrap_or_else(|| NO_PROJECT.to_string()),
         )
     });
 
@@ -25,7 +21,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
     let mut unattributed = false;
 
     for (project, totals) in by_weight_desc(by_project) {
-        unattributed |= project == UNATTRIBUTED;
+        unattributed |= project == NO_PROJECT;
         let mut row = vec![Cell::text(&project), count(totals.sessions.len() as u64)];
         row.extend(totals.tail_cells());
         table.push(row);
@@ -33,7 +29,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
         let mut json = serde_json::Map::new();
         json.insert(
             "project".into(),
-            if project == UNATTRIBUTED {
+            if project == NO_PROJECT {
                 serde_json::Value::Null
             } else {
                 serde_json::json!(project)
@@ -47,7 +43,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
     let mut notes = scanned.notes;
     if unattributed {
         notes.push(format!(
-            "{UNATTRIBUTED}: events whose source log recorded no working directory; they are real \
+            "{NO_PROJECT}: events whose source log recorded no working directory; they are real \
              spend and are kept rather than dropped, and their JSON `project` is null"
         ));
     }

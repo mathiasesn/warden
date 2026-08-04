@@ -15,10 +15,11 @@ use std::collections::BTreeMap;
 
 use crate::config::Pricing;
 use crate::output::{Cell, Report, Table};
+use crate::reports::Cost;
 use crate::store::Event;
 use crate::store::Scanner;
 
-use super::{count, round_money, scan, ReportCtx, ReportError, SYNTHETIC_MODEL};
+use super::{count, desc, scan, ReportCtx, ReportError};
 
 /// The documented attribution rule, published in the rows and the notes.
 pub const METHOD: &str = "even-split";
@@ -35,11 +36,10 @@ struct Attributed {
     output: f64,
     cache_read: f64,
     cache_write: f64,
-    cost: f64,
-    priced_events: u64,
-    /// Events with usage this file was attributed a share of, whose model has
-    /// no configured price. Their spend is missing from `cost`.
-    unpriced_events: u64,
+    /// The attributed share of this file's spend. Sharing `Cost` with every
+    /// other report is what keeps the honesty rules — `–` when nothing could be
+    /// priced, `~+` when only some of it could — stated in exactly one place.
+    cost: Cost,
 }
 
 impl Attributed {
@@ -50,41 +50,11 @@ impl Attributed {
         self.output += event.output_tok.unwrap_or(0) as f64 * share;
         self.cache_read += event.cache_read_tok.unwrap_or(0) as f64 * share;
         self.cache_write += event.cache_write_tok.unwrap_or(0) as f64 * share;
-        if event.model.as_deref() != Some(SYNTHETIC_MODEL) && super::has_usage(event) {
-            match super::event_cost(event, pricing) {
-                Some(cost) => {
-                    self.cost += cost * share;
-                    self.priced_events += 1;
-                }
-                None => self.unpriced_events += 1,
-            }
-        }
+        self.cost.add_share(event, pricing, share);
     }
 
     fn total(&self) -> f64 {
         self.input + self.output + self.cache_read + self.cache_write
-    }
-
-    fn is_partial(&self) -> bool {
-        self.priced_events > 0 && self.unpriced_events > 0
-    }
-
-    fn cost_cell(&self) -> Cell {
-        if self.priced_events == 0 {
-            Cell::Unsupported
-        } else if self.is_partial() {
-            Cell::money_partial(self.cost)
-        } else {
-            Cell::money_est(self.cost)
-        }
-    }
-
-    fn cost_json(&self) -> serde_json::Value {
-        if self.priced_events == 0 {
-            serde_json::Value::Null
-        } else {
-            serde_json::json!(round_money(self.cost))
-        }
     }
 }
 
@@ -105,7 +75,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             }
         }
         if calls.is_empty() {
-            if super::has_usage(event) {
+            if event.has_usage() {
                 unattributed.add(event, &ctx.pricing);
             }
             continue;
@@ -124,12 +94,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
 
     let total_files = by_file.len();
     let mut ranked: Vec<(String, Attributed)> = by_file.into_iter().collect();
-    ranked.sort_by(|a, b| {
-        b.1.total()
-            .partial_cmp(&a.1.total())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.0.cmp(&b.0))
-    });
+    ranked.sort_by(|a, b| desc(a.1.total(), b.1.total()).then_with(|| a.0.cmp(&b.0)));
 
     let mut table = Table::new([
         "file",
@@ -150,7 +115,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             count(attributed.input.round() as u64),
             count(attributed.output.round() as u64),
             count(attributed.cache_read.round() as u64),
-            attributed.cost_cell(),
+            attributed.cost.cell(),
         ]);
         rows.push(serde_json::json!({
             "file": path,
@@ -162,10 +127,10 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
             "attributed_output_tok": round2(attributed.output),
             "attributed_cache_read_tok": round2(attributed.cache_read),
             "attributed_cache_write_tok": round2(attributed.cache_write),
-            "attributed_cost_est": attributed.cost_json(),
-            "cost_partial": attributed.is_partial(),
-            "cost_priced_events": attributed.priced_events,
-            "cost_unpriced_events": attributed.unpriced_events,
+            "attributed_cost_est": attributed.cost.json(),
+            "cost_partial": attributed.cost.is_partial(),
+            "cost_priced_events": attributed.cost.priced,
+            "cost_unpriced_events": attributed.cost.unpriced,
         }));
     }
 
@@ -202,6 +167,7 @@ fn file_target(target: Option<&str>) -> Option<&str> {
     Some(target)
 }
 
+/// Token shares are fractional by construction; published at 2dp like money.
 fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }

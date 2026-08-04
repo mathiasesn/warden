@@ -7,7 +7,7 @@
 pub mod envelope;
 pub mod table;
 
-pub use envelope::{Envelope, Period};
+pub use envelope::{iso8601_ms, Envelope, Period};
 pub use table::{format_count, format_money, Cell, Style, Table, UNSUPPORTED};
 
 use std::io::{self, Write};

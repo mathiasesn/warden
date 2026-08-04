@@ -81,6 +81,30 @@ impl Event {
             is_sidechain: None,
         }
     }
+
+    /// Whether this record carries usage at all.
+    ///
+    /// Usage is logged once per request and most records legitimately carry
+    /// none, so "did this cost anything?" is asked on every read path. It is
+    /// answered here, once: a reader that forgets one of the four fields —
+    /// cache reads especially, which dominate agentic volume — would quietly
+    /// classify billable requests as free.
+    /// Every token this request consumed. Cache reads are the bulk of an
+    /// agentic loop's volume, so any figure that excluded them would read far
+    /// too low; absent counts contribute nothing rather than zero.
+    pub fn total_tokens(&self) -> u64 {
+        self.input_tok.unwrap_or(0)
+            + self.output_tok.unwrap_or(0)
+            + self.cache_read_tok.unwrap_or(0)
+            + self.cache_write_tok.unwrap_or(0)
+    }
+
+    pub fn has_usage(&self) -> bool {
+        self.input_tok.is_some()
+            || self.output_tok.is_some()
+            || self.cache_read_tok.is_some()
+            || self.cache_write_tok.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

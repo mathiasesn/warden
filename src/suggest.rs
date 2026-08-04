@@ -126,8 +126,10 @@ impl DuplicateGroup {
     }
 }
 
-/// The short id for a prompt hash. Deterministic: same hash, same id, always.
-pub fn short_id(text_hash: &str) -> String {
+/// The id a user types at `warden suggest --draft <id>`. Deterministic — same
+/// hash, same id, always — so an id printed by one run still resolves in the
+/// next. Distinct from `reports::short_id`, which only truncates for display.
+pub fn group_id(text_hash: &str) -> String {
     text_hash.chars().take(ID_LEN).collect()
 }
 
@@ -297,7 +299,7 @@ impl Accumulator {
     fn finish(self) -> DuplicateGroup {
         let action = action_for(self.text.as_deref());
         DuplicateGroup {
-            id: short_id(&self.text_hash),
+            id: group_id(&self.text_hash),
             text_hash: self.text_hash,
             text: self.text,
             count: self.count,
@@ -516,7 +518,7 @@ mod tests {
         let ids: Vec<&str> = first.iter().map(|g| g.id.as_str()).collect();
         let again: Vec<&str> = second.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(ids, again);
-        assert_eq!(first[0].id, short_id(&text_hash(RUN_TESTS)));
+        assert_eq!(first[0].id, group_id(&text_hash(RUN_TESTS)));
         assert_eq!(first[0].id.len(), ID_LEN);
         assert!(first[0].text_hash.starts_with(&first[0].id));
     }

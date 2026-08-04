@@ -33,7 +33,7 @@ use serde_json::{Map, Value};
 use crate::cli::TimeWindow;
 use crate::config::{Pricing, TokenCounts};
 use crate::output::{Cell, Report};
-use crate::store::{Event, ScanQuery, ScanStats, Scanner};
+use crate::store::{Event, ScanQuery, Scanner};
 
 /// The model name Claude Code writes for records it synthesized itself. It is
 /// not a model anyone is billed for, so it is counted in volume and excluded
@@ -157,7 +157,6 @@ impl From<io::Error> for ReportError {
 /// A completed scan, with the observations every report turns into notes.
 pub struct Scanned {
     pub events: Vec<Event>,
-    pub stats: ScanStats,
     pub notes: Notes,
 }
 
@@ -176,11 +175,7 @@ pub fn scan(scanner: &Scanner, ctx: &ReportCtx) -> Result<Scanned, ReportError> 
         events.push(event);
     })?;
     notes.lines_skipped = stats.lines_skipped;
-    Ok(Scanned {
-        events,
-        stats,
-        notes,
-    })
+    Ok(Scanned { events, notes })
 }
 
 /// Running cost for one bucket.
@@ -198,12 +193,20 @@ pub struct Cost {
 
 impl Cost {
     fn add(&mut self, event: &Event, pricing: &Pricing) {
-        if !has_usage(event) || event.model.as_deref() == Some(SYNTHETIC_MODEL) {
+        self.add_share(event, pricing, 1.0);
+    }
+
+    /// Add `share` of this event's cost — the whole of it for a bucket that owns
+    /// the event, a fraction for `report files`, which splits a turn across the
+    /// files it touched. The priced/unpriced counters are per event either way,
+    /// so a partially-priced bucket is flagged the same however it was built.
+    fn add_share(&mut self, event: &Event, pricing: &Pricing, share: f64) {
+        if !event.has_usage() || event.model.as_deref() == Some(SYNTHETIC_MODEL) {
             return;
         }
         match event_cost(event, pricing) {
             Some(cost) => {
-                self.total += cost;
+                self.total += cost * share;
                 self.priced += 1;
             }
             None => self.unpriced += 1,
@@ -266,15 +269,6 @@ pub fn event_cost(event: &Event, pricing: &Pricing) -> Option<f64> {
         .or(event.cost_est)
 }
 
-/// Whether this record carries usage at all. Usage is logged once per request,
-/// so most records legitimately carry none.
-pub fn has_usage(event: &Event) -> bool {
-    event.input_tok.is_some()
-        || event.output_tok.is_some()
-        || event.cache_read_tok.is_some()
-        || event.cache_write_tok.is_some()
-}
-
 /// Everything summed for one bucket of events.
 #[derive(Debug, Clone, Default)]
 pub struct Totals {
@@ -295,7 +289,7 @@ pub struct Totals {
 impl Totals {
     pub fn add(&mut self, event: &Event, pricing: &Pricing) {
         self.events += 1;
-        if has_usage(event) {
+        if event.has_usage() {
             self.requests += 1;
         }
         self.input += event.input_tok.unwrap_or(0);
@@ -395,6 +389,18 @@ where
     buckets
 }
 
+/// The label for a bucket whose events recorded no working directory. Those
+/// events are still real spend, so they get a row rather than being dropped —
+/// under one spelling, because `projects` explains it in a note and `sessions`
+/// prints it.
+pub const NO_PROJECT: &str = "(no project)";
+
+/// Descending float compare. `Ordering::Equal` for a NaN — a weight that cannot
+/// be compared must not reorder the rows around it.
+pub fn desc(a: f64, b: f64) -> std::cmp::Ordering {
+    b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal)
+}
+
 /// Heaviest bucket first, ties broken by key so output is deterministic.
 pub fn by_weight_desc<K: Ord + Clone>(buckets: BTreeMap<K, Totals>) -> Vec<(K, Totals)> {
     let mut rows: Vec<(K, Totals)> = buckets.into_iter().collect();
@@ -478,7 +484,7 @@ impl Notes {
 
     fn observe(&mut self, event: &Event) {
         self.events += 1;
-        if !has_usage(event) {
+        if !event.has_usage() {
             return;
         }
         self.requests += 1;
@@ -500,14 +506,32 @@ impl Notes {
     }
 
     /// Merge another window's observations in (`compare` scans twice).
+    ///
+    /// Destructured rather than field-by-field on purpose: a new observation
+    /// added to `Notes` fails to compile here until it says how it merges,
+    /// instead of being silently dropped from every `compare`.
     pub fn merge(&mut self, other: &Notes) {
-        self.sidechain_events += other.sidechain_events;
-        self.lines_skipped += other.lines_skipped;
-        self.unpriced_models
-            .extend(other.unpriced_models.iter().cloned());
-        self.synthetic_events += other.synthetic_events;
-        self.events += other.events;
-        self.requests += other.requests;
+        let Notes {
+            // Both windows are scanned through one context, so these are the
+            // same on either side and the left-hand copy stands.
+            include_sidechain: _,
+            pricing: _,
+            // Report-specific notes belong to the report, which pushes them
+            // once after merging; a merged pair would print them twice.
+            extra: _,
+            sidechain_events,
+            lines_skipped,
+            unpriced_models,
+            synthetic_events,
+            events,
+            requests,
+        } = other;
+        self.sidechain_events += sidechain_events;
+        self.lines_skipped += lines_skipped;
+        self.unpriced_models.extend(unpriced_models.iter().cloned());
+        self.synthetic_events += synthetic_events;
+        self.events += events;
+        self.requests += requests;
     }
 
     /// The full note list, report-specific notes first.

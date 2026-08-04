@@ -15,7 +15,7 @@
 //! A partial trailing line (a writer caught mid-append) is never consumed: it
 //! is reported as skipped for this run and picked up once it is complete.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -140,6 +140,17 @@ fn ingest_adapter(
         return Ok(summary);
     }
 
+    // Last record for a path wins (the log is append-only), so a single
+    // forward pass leaves the newest cursor per path. Indexing once beats
+    // re-scanning the whole log for every discovered file — the log grows by a
+    // line per file per run, so the linear form degrades every time it runs.
+    let mut latest: HashMap<&Path, &IngestCursor> = HashMap::new();
+    for cursor in cursors {
+        if cursor.adapter == adapter.name() {
+            latest.insert(Path::new(&cursor.path), cursor);
+        }
+    }
+
     for path in adapter.discover(&root)? {
         summary.files_seen += 1;
         let Ok(meta) = std::fs::metadata(&path) else {
@@ -154,10 +165,7 @@ fn ingest_adapter(
             continue;
         }
 
-        let cursor = cursors
-            .iter()
-            .rev()
-            .find(|cursor| Path::new(&cursor.path) == path && cursor.adapter == adapter.name());
+        let cursor = latest.get(path.as_path()).copied();
         // A file that shrank was rotated or rewritten; re-read it from the
         // start and let id dedup absorb what is already stored.
         let start = match cursor {
@@ -276,11 +284,7 @@ fn apply_usage(event: &mut Event, key: Option<&str>, state: &mut StoreState, con
             return;
         }
     }
-    let counted = event.input_tok.is_some()
-        || event.output_tok.is_some()
-        || event.cache_read_tok.is_some()
-        || event.cache_write_tok.is_some();
-    if let (true, Some(model)) = (counted, event.model.as_deref()) {
+    if let (true, Some(model)) = (event.has_usage(), event.model.as_deref()) {
         // `None` when the model is unpriced — never a misleading 0.0.
         event.cost_est = config.estimate_cost(
             &event.provider,
@@ -323,7 +327,7 @@ impl StoreState {
         };
         let scanner = Scanner::new(paths.clone());
         scanner.scan_with(&ScanQuery::new(TimeWindow::all()), |event| {
-            if let (Some(turn), true) = (event.turn_id.as_deref(), has_counts(&event)) {
+            if let (Some(turn), true) = (event.turn_id.as_deref(), event.has_usage()) {
                 state
                     .usage_keys
                     .insert(usage_key(&event.agent, event.session_id.as_deref(), turn));
@@ -342,13 +346,6 @@ impl StoreState {
     fn claim_usage(&mut self, key: &str) -> bool {
         self.usage_keys.insert(key.to_string())
     }
-}
-
-fn has_counts(event: &Event) -> bool {
-    event.input_tok.is_some()
-        || event.output_tok.is_some()
-        || event.cache_read_tok.is_some()
-        || event.cache_write_tok.is_some()
 }
 
 /// Read `state/ingest.jsonl`. Append-only, so later records for a path win;

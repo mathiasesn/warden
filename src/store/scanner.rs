@@ -103,8 +103,16 @@ impl Scanner {
                 Err(err) => return Err(err),
             };
             stats.partitions_read += 1;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
+            // One reused buffer rather than `lines()`, which allocates a fresh
+            // String per line: a full-store scan is hundreds of thousands of
+            // lines and every one of them is dropped before the next is read.
+            let mut reader = BufReader::new(file);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line)? == 0 {
+                    break;
+                }
                 if line.trim().is_empty() {
                     continue;
                 }

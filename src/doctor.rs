@@ -107,10 +107,11 @@ fn store_health(
     let query = ScanQuery::new(window).with_project(project.map(str::to_string));
     scanner.scan_with(&query, |event| {
         store.events += 1;
-        let counted = event.input_tok.is_some() || event.output_tok.is_some();
         // Priced from the config as it is now, exactly as a report would: a
         // rate added since ingest must stop doctor from calling it unpriced.
-        if counted && crate::reports::event_cost(&event, pricing).is_none() {
+        // `has_usage` and not a narrower check, so a cache-only record counts
+        // here exactly as it counts in a report.
+        if event.has_usage() && crate::reports::event_cost(&event, pricing).is_none() {
             unpriced.insert(event.model.unwrap_or_else(|| "(unknown model)".into()));
         }
     })?;

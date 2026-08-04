@@ -5,8 +5,6 @@
 //! That requires a bounded period, so an unbounded run is an error with the fix
 //! in it rather than a comparison against nothing.
 
-use chrono::{SecondsFormat, TimeZone, Utc};
-
 use crate::cli::TimeWindow;
 use crate::output::{Cell, Report, Table};
 use crate::store::Scanner;
@@ -112,10 +110,7 @@ pub fn build(scanner: &Scanner, ctx: &ReportCtx) -> Result<Report, ReportError> 
 }
 
 fn iso(ms: i64) -> String {
-    Utc.timestamp_millis_opt(ms)
-        .single()
-        .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Secs, true))
-        .unwrap_or_else(|| "unbounded".to_string())
+    crate::output::iso8601_ms(ms).unwrap_or_else(|| "unbounded".to_string())
 }
 
 fn fold(events: &[crate::store::Event], pricing: &Pricing) -> Totals {
