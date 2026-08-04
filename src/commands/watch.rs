@@ -64,9 +64,7 @@ pub fn run(env: &Env<'_>, oneline: bool) -> io::Result<Burn> {
         now.timestamp_millis(),
     )?;
 
-    let mut report = report(&burn, env);
-    report.text = Some(format!("{}\n", burn.line()));
-    emit(&report, env.json)?;
+    emit(&report(&burn, env), env.json)?;
     Ok(burn)
 }
 
@@ -131,7 +129,7 @@ fn report(burn: &Burn, env: &Env<'_>) -> Report {
         count(burn.session_tokens),
     ]);
 
-    Report::new("watch", env.window, table)
+    let mut report = Report::new("watch", env.window, table)
         .with_json_rows(vec![serde_json::json!({
             "project": burn.project,
             "tokens_per_hour": burn.tokens_per_hour,
@@ -143,7 +141,9 @@ fn report(burn: &Burn, env: &Env<'_>) -> Report {
             "tok/hr is every token in the last hour — input, output, and cache — from the \
                 current month's partition only",
             "--since does not apply to watch: it always reports on now",
-        ])
+        ]);
+    report.text = Some(format!("{}\n", burn.line()));
+    report
 }
 
 #[cfg(test)]
@@ -223,8 +223,7 @@ mod tests {
             no_ingest: true,
             include_sidechain: true,
         };
-        let mut report = report(&burn, &env);
-        report.text = Some(format!("{}\n", burn.line()));
+        let report = report(&burn, &env);
 
         let mut human = Vec::new();
         write_report(&mut human, &report, false, Style::plain()).unwrap();

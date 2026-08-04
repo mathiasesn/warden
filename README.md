@@ -86,7 +86,7 @@ write and reads `~/.claude/projects` strictly read-only.
 | `warden report <name>` | One of the named reports (below). |
 | `warden query --group-by <dims>` | Ad-hoc rollup over `project`, `model`, `agent`, `day`, … |
 | `warden suggest` | Prompts you have sent more than once, byte-for-byte. |
-| `warden suggest --draft <id>` | Print a `SKILL.md` draft for one of them, **to stdout only**. |
+| `warden suggest --draft <id>` | Print a `SKILL.md` draft for one of them, **to stdout only**; conflicts with `--json`. |
 | `warden watch --oneline` | One status-bar line of burn rate, then exit. |
 | `warden doctor` | Why is this number empty? |
 | `warden purge --prompts` | Delete stored prompt text. |
@@ -134,10 +134,17 @@ abd268ed      6  1d ago   adept, backlog-issue-links, make-workspace-publishable
 246674b1      6  1d ago   adept, adept-impl, make-workspace-publishable           → draft skill: base-directory-this-skill       "Base directory for this skill: /home/mathias/.claude/skills/cod…"
 ```
 
+The headline (`1015 repeated prompts found, …`) goes to **stderr**, unconditionally
+— including in `--json` mode — so stdout stays the table alone, or a single
+parseable JSON document; pipe stdout to a file and you get the table or the
+envelope, never the headline.
+
 `warden suggest --draft 17eaf8bd` prints a `SKILL.md` to stdout. **It writes
 nothing.** Redirect it yourself if you want the file — staged writing with a
 diff and a confirmation is a v0.2 feature, and until it exists warden will not
-put a file in your repo.
+put a file in your repo. `--draft` conflicts with `--json` — a parse error, not
+a silent ignore — because the draft itself is the payload and there is no
+envelope to put it in.
 
 Ids come from the prompt's hash, so they are stable across runs and machines.
 Groups that are only the client's own transcript furniture — slash-command

@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn the_headline_goes_to_stderr_and_the_table_alone_to_stdout() {
+    fn the_headline_is_not_part_of_the_reports_stdout_rendering() {
         let (_dir, paths) = fixture(true);
         let detection =
             suggest::detect(&Scanner::new(paths.clone()), TimeWindow::all(), None).unwrap();

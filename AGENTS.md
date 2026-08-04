@@ -15,7 +15,10 @@ Break one of these and the change is wrong, however well it works:
 1. **`None`/absent, never `0`.** Anything warden cannot derive is `None` in a record, absent in
    JSON, `Cell::Unsupported` (a dim `–`) in a table. The most load-bearing rule in the codebase.
 2. **One read path (`store::Scanner`), one presentation layer (`output::emit`).** Never open a
-   partition file or branch on `--json` anywhere else.
+   partition file or branch on `--json` anywhere else. The one deliberate exception is `suggest
+   --draft <id>`, which writes the `SKILL.md` draft straight to `io::stdout()` because the draft
+   *is* the payload; the parser makes `--draft` and `--json` mutually exclusive so there is
+   nothing to branch on.
 3. **No network.** No provider calls, no API key, no dependency that can make a request.
 4. **Read-only against sources.** warden writes only its own store (`purge` rewrites it by design).
 5. **Add record/envelope fields freely; never rename, retype, or remove** without bumping
@@ -52,6 +55,10 @@ uv pip install --python .venv/bin/python pytest   # separate, later step: don't 
 
 This subset is enough to catch a mismatch locally; `ci.yml` is the full assertion (it also
 reads the wheel's own metadata version).
+
+The `msrv` job pins the toolchain to 1.87 and runs `cargo check --all-features` (build-only;
+`cargo test --all-features` already runs on stable above) — run it locally with the 1.87
+toolchain installed whenever a change might use an API newer than the floor.
 
 Versions are `release-plz`'s job — it owns bumping `Cargo.toml`'s `version` and the changelog.
 Never hand-edit the version; `pyproject.toml`'s version fields stay `dynamic` on purpose.
