@@ -1,7 +1,23 @@
 [package]
-name = "warden"
+name = "warden-cli"
 version = "0.1.0"
 edition = "2021"
+description = "A local, read-only CLI that analyzes your coding agent's session logs and turns that analysis into skills, slash commands, and prompts."
+license = "MIT"
+repository = "https://github.com/mathiasesn/warden"
+readme = "README.md"
+keywords = ["cli", "claude-code", "analytics", "logs", "agent"]
+categories = ["command-line-utilities", "development-tools"]
+rust-version = "1.87"
+exclude = ["specs/", "docs/", "assets/", ".claude/"]
+
+[lib]
+name = "warden"
+path = "src/lib.rs"
+
+[[bin]]
+name = "warden"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

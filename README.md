@@ -47,12 +47,21 @@ zero. `warden doctor` explains every one of them.
 
 ## Install
 
+The crate publishes as `warden-cli` (`warden` was already taken on
+crates.io) but the installed command is `warden` either way:
+
 ```bash
-cargo install --path .     # or: cargo build --release && install target/release/warden ~/.local/bin/
+cargo install warden-cli   # needs a Rust toolchain
+# or
+uv tool install warden-cli # no Rust toolchain required
+
 warden doctor              # what can warden see?
 warden ingest              # read the logs, append new events
 warden report projects --since 7d
 ```
+
+From source: `cargo install --path .` (or `cargo build --release && install
+target/release/warden ~/.local/bin/`).
 
 Nothing else is required. warden creates `~/.warden/` (mode `0700`) on first
 write and reads `~/.claude/projects` strictly read-only.
