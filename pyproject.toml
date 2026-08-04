@@ -34,4 +34,5 @@ exclude = [
     ".claude/**",
     "ARCHI.md",
     "AGENTS.md",
+    ".github/**",
 ]

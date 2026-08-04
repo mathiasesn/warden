@@ -55,6 +55,7 @@ python/warden/        wheel-only launcher: __main__.py execs the binary,
                       _find_warden.py locates it via the dist's RECORD
 python/tests/         pytest suite for the discovery shim
 assets/             † logo/favicon images for repo branding
+.github/            † CI/release workflows, issue templates
 .claude/            † local Claude Code settings
 specs/              † per-change specs
 ARCHI.md            † this file
