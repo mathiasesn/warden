@@ -1,6 +1,6 @@
 [package]
 name = "warden-cli"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A local, read-only CLI that analyzes your coding agent's session logs and turns that analysis into skills, slash commands, and prompts."
 license = "MIT"
