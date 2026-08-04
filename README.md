@@ -110,7 +110,7 @@ touched. The output is labelled `attributed` and `--json` carries
 
 ### Global flags
 
-`--json` · `--since <7d|24h|2026-01-01>` · `--project <name>` ·
+`--json` · `--since <7d|24h|2w|2026-01-01>` · `--project <name>` ·
 `--data-dir <path>` · `--no-ingest` · `--no-sidechain`
 
 Sidechain (subagent) events are **included by default**. They are real spend,

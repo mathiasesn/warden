@@ -125,7 +125,7 @@ Global flags apply to every subcommand: `--json`, `--since <7d|24h|90m|2w|2026-0
 | `doctor` | What warden can see, and why a column is blank. |
 | `purge --prompts [--yes\|--force]` | The only command that rewrites files; `--yes` is required when stdin is not a TTY. |
 
-**Conventions to follow when adding a command:** add the variant to `cli::Command` *and* to `Command::name()`; put the implementation in `src/commands/<name>.rs`; take `&Env<'_>` (the resolved global flags, borrowed); call `env.pre_ingest()` if it reads the store; build a `Report` and finish with `output::emit`. Adding a report means adding a module under `src/reports/`, registering it in `reports::run`, and extending `reports::NAMES` — the fixed report set is intentional, and arbitrary querying belongs in `query`.
+**Conventions to follow when adding a command:** add the variant to `cli::Command`; put the implementation in `src/commands/<name>.rs`; take `&Env<'_>` (the resolved global flags, borrowed); call `env.pre_ingest()` if it reads the store; build a `Report` and finish with `output::emit`. Adding a report means adding a module under `src/reports/`, registering it in `reports::run`, and extending `reports::NAMES` — the fixed report set is intentional, and arbitrary querying belongs in `query`.
 
 **Exit codes and streams:** `main` returns `ExitCode::SUCCESS` or `ExitCode::FAILURE` only — there are no distinguished error codes. Errors print as `warden: {err}` on stderr. stdout carries the report and nothing else; ANSI escapes are emitted only for a table on a TTY (`Style::auto()`).
 
