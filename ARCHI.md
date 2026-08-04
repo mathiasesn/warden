@@ -20,7 +20,7 @@ Flow: `sources → adapters → ingest → store (JSONL) → scanner → reports
 
 ## 3. Technology Stack
 
-- **Rust 2021**, `rust-version = "1.87"`, tracks stable in CI.
+- **Rust 2021**, `rust-version = "1.87"`, tracks stable in CI; a separate `msrv` job pins 1.87 so the floor is enforced, not just claimed.
 - Runtime deps, all thin and deliberate: `clap` 4 (derive) for the CLI, `serde` + `serde_json` for records and the JSON envelope, `chrono` for all time handling, `toml` 0.8 for config, `sha2` 0.10 for content-derived ids. `tempfile` 3 is a dev-dependency.
 - **No async runtime, no database, no HTTP client.** Do not add one without an explicit decision — the absence is the design.
 - Distributed twice from one source of truth: **crates.io** as `warden-cli`, and **PyPI** as `warden-cli` via `maturin` with `bindings = "bin"` (the wheel ships the compiled binary plus a tiny Python launcher). `Cargo.toml` owns version/description/license/keywords; `pyproject.toml` declares them `dynamic` so the two can never disagree.
@@ -70,7 +70,7 @@ Organizing principle: **one direction of dependency.** `cli → commands → {re
 1. **Absence is not zero.** Any figure warden cannot derive is `None` in a record, absent in JSON, and `Cell::Unsupported` (a dim `–`) in a table. Never substitute `0` or `0.0` for "unknown". This is the single most load-bearing rule in the codebase.
 2. **The store is the API.** Append-only JSONL, no database, no migrations. Users are expected to `jq` it directly, so the record shape is a committed surface (§9).
 3. **One read path.** Every report consumes `store::Scanner`; no report opens a partition file itself. That is what would let a derived cache be added later without touching each report.
-4. **One presentation layer.** Every report builds an `output::Report` and goes out via `output::emit`. No command branches on `--json` itself, so the table and JSON surfaces cannot drift.
+4. **One presentation layer.** Every report builds an `output::Report` and goes out via `output::emit`. No command branches on `--json` itself, so the table and JSON surfaces cannot drift. The one deliberate exception is `suggest --draft <id>`: the `SKILL.md` draft *is* the payload, so it is written straight to `io::stdout()` rather than wrapped in a `Report`, and the parser makes `--draft`/`--json` mutually exclusive so there is nothing left to branch on.
 5. **Cost is derived at read time**, from `config.toml`, never baked in at ingest. Editing a price re-prices events already in the store with no re-ingest.
 6. **Idempotence by construction.** Event ids are a truncated SHA-256 over identifying content, so re-ingest produces lines already present and drops them. Re-running ingest yields a byte-identical store.
 
@@ -85,6 +85,8 @@ cargo test --all-features
 ```
 
 Python-side (second CI job, ubuntu only): `uv venv .venv && uv pip install --python .venv/bin/python .` then `uv pip install --python .venv/bin/python pytest` then `.venv/bin/python -m pytest python/tests -q`. That job also asserts the wheel's version, `warden --version`, and `python -m warden --version` all match the crate version — maturin resolving the version from `Cargo.toml` is a load-bearing invariant, not incidental.
+
+A separate `msrv` job pins the toolchain to 1.87 (`dtolnay/rust-toolchain@1.87`, its own cache) and runs `cargo check --all-features` only — build-only, since `cargo test --all-features` already runs on stable in the `check` job above. This is what makes the `rust-version = "1.87"` claim in `Cargo.toml` and the README badge true rather than aspirational.
 
 **Testing conventions:** every test is an inline `#[cfg(test)] mod tests` in the file it covers (no `tests/` directory for Rust integration tests). Fixtures come from two crate-internal helpers, `reports::testkit` and `suggest::testkit`, which build `Event`s and temp stores — use them rather than hand-rolling a store. Tests must render with `Style::plain()` so no ANSI leaks into assertions.
 
@@ -113,7 +115,7 @@ Precedence for the store root: `--data-dir` > `general.data_dir` > `~/.warden` (
 
 ## 8. Command Structure
 
-Global flags apply to every subcommand: `--json`, `--since <7d|24h|90m|2w|2026-01-01>`, `--project <name>`, `--data-dir <path>`, `--no-ingest`, `--no-sidechain`.
+Global flags apply to every subcommand — `--json`, `--since <7d|24h|90m|2w|2026-01-01>`, `--project <name>`, `--data-dir <path>`, `--no-ingest`, `--no-sidechain` — with one exception: `suggest --draft <id>` conflicts with `--json` (the draft *is* the payload, so there is no envelope to put it in; see the `suggest` row below).
 
 | Command | Notes |
 |---|---|
@@ -121,11 +123,11 @@ Global flags apply to every subcommand: `--json`, `--since <7d|24h|90m|2w|2026-0
 | `report <name>` | One of the fixed set named in `reports::NAMES`: `summary`, `projects`, `models`, `sessions`, `tools`, `compare`, `files`. `compare` is the one report needing a bounded window. |
 | `query --group-by <dims>` | Rollup over `project`, `model`, `agent`, `provider`, `day`, `session`, `role`. |
 | `watch --oneline` | Single status-bar line (tmux). Only `--oneline` ships in 0.1.0; the streaming form says so rather than faking it. |
-| `suggest [--draft <id>]` | Repeated prompts; `--draft` prints a `SKILL.md` to **stdout and writes nothing**. |
+| `suggest [--draft <id>]` | Repeated prompts; the `N repeated prompts found` headline goes to **stderr**, unconditionally (even under `--json`), so stdout stays the table or the envelope alone. `--draft` prints a `SKILL.md` to **stdout and writes nothing**, and conflicts with `--json` (a parse error, not a silent ignore). |
 | `doctor` | What warden can see, and why a column is blank. |
 | `purge --prompts [--yes\|--force]` | The only command that rewrites files; `--yes` is required when stdin is not a TTY. |
 
-**Conventions to follow when adding a command:** add the variant to `cli::Command` *and* to `Command::name()`; put the implementation in `src/commands/<name>.rs`; take `&Env<'_>` (the resolved global flags, borrowed); call `env.pre_ingest()` if it reads the store; build a `Report` and finish with `output::emit`. Adding a report means adding a module under `src/reports/`, registering it in `reports::run`, and extending `reports::NAMES` — the fixed report set is intentional, and arbitrary querying belongs in `query`.
+**Conventions to follow when adding a command:** add the variant to `cli::Command`; put the implementation in `src/commands/<name>.rs`; take `&Env<'_>` (the resolved global flags, borrowed); call `env.pre_ingest()` if it reads the store; build a `Report` and finish with `output::emit`. Adding a report means adding a module under `src/reports/`, registering it in `reports::run`, and extending `reports::NAMES` — the fixed report set is intentional, and arbitrary querying belongs in `query`.
 
 **Exit codes and streams:** `main` returns `ExitCode::SUCCESS` or `ExitCode::FAILURE` only — there are no distinguished error codes. Errors print as `warden: {err}` on stderr. stdout carries the report and nothing else; ANSI escapes are emitted only for a table on a TTY (`Style::auto()`).
 
@@ -172,7 +174,7 @@ Committed compatibility contract (applies to both the record and the `--json` en
 - **No network code, ever.** No provider calls, no API key, no HTTP dependency.
 - **Read-only against source logs.** Only `~/.warden/` is written.
 - **`None`/absent, never `0`,** for anything warden cannot derive — in records, JSON, and tables.
-- **`store::Scanner` is the only read path** over `events/`; `output::emit` is the only `--json` branch.
+- **`store::Scanner` is the only read path** over `events/`; `output::emit` is the only `--json` branch, except `suggest --draft`, which has no `--json` left to branch on (see §5.4).
 - **The named reports (`reports::NAMES`) are a fixed set**; arbitrary grouping lives in `query`.
 - **Pricing comes only from `config.toml`,** applied at read time; no prices in the binary.
 - **Record and envelope fields may be added, never renamed/retyped/removed** without bumping `RECORD_VERSION`.

@@ -8,12 +8,11 @@
 //! properly means tailing the partition from a byte offset instead of rescanning,
 //! and that is not in scope yet. It says so rather than pretending.
 
-use std::io::{self, Write};
+use std::io;
 
 use chrono::Utc;
 
-use crate::output::{emit, format_count, Cell, Report, Table};
-use crate::reports::{count, format_span};
+use crate::output::{emit, format_count, Report};
 use crate::store::{Partition, ScanQuery, Scanner};
 
 use super::Env;
@@ -64,13 +63,7 @@ pub fn run(env: &Env<'_>, oneline: bool) -> io::Result<Burn> {
         now.timestamp_millis(),
     )?;
 
-    if env.json {
-        emit(&report(&burn, env), true)?;
-    } else {
-        let mut stdout = io::stdout().lock();
-        writeln!(stdout, "{}", burn.line())?;
-        stdout.flush()?;
-    }
+    emit(&report(&burn, env), env.json)?;
     Ok(burn)
 }
 
@@ -127,15 +120,11 @@ pub fn burn(scanner: &Scanner, project: Option<&str>, now_ms: i64) -> io::Result
     })
 }
 
+/// `watch`'s human form is one status-bar line, not a table — so it is a prose
+/// report, the same shape `ingest` and `doctor` use. The envelope still carries
+/// the figures as real rows for a harness to do its own arithmetic on.
 fn report(burn: &Burn, env: &Env<'_>) -> Report {
-    let table = Table::new(["project", "tok/hr", "session", "session tokens"]).with_row(vec![
-        Cell::text(burn.project.clone().unwrap_or_else(|| "(none)".into())),
-        count(burn.tokens_per_hour),
-        Cell::text(format_span(burn.session_ms)),
-        count(burn.session_tokens),
-    ]);
-
-    Report::new("watch", env.window, table)
+    Report::prose("watch", env.window, format!("{}\n", burn.line()))
         .with_json_rows(vec![serde_json::json!({
             "project": burn.project,
             "tokens_per_hour": burn.tokens_per_hour,
@@ -153,7 +142,11 @@ fn report(burn: &Burn, env: &Env<'_>) -> Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::TimeWindow;
+    use crate::config::Config;
+    use crate::output::{write_report, Style};
     use crate::reports::testkit::{store, used};
+    use crate::store::StorePaths;
     use chrono::{TimeZone, Utc};
 
     /// Timestamps relative to a fixed "now" inside a real month partition.
@@ -165,6 +158,18 @@ mod tests {
 
     fn mins(n: i64) -> i64 {
         now() - n * 60_000
+    }
+
+    fn env<'a>(paths: &'a StorePaths, config: &'a Config) -> Env<'a> {
+        Env {
+            config,
+            paths,
+            window: TimeWindow::all(),
+            project: None,
+            json: false,
+            no_ingest: true,
+            include_sidechain: true,
+        }
     }
 
     #[test]
@@ -208,6 +213,30 @@ mod tests {
         let burn = burn(&Scanner::new(paths), None, now()).unwrap();
         assert_eq!(burn, Burn::default());
         assert_eq!(burn.line(), "no activity in the current partition");
+    }
+
+    #[test]
+    fn the_human_writer_gets_exactly_the_burn_line() {
+        let (_dir, paths) = store(&[used("a", mins(10), "acme-api", "m", 1_000, 0)]);
+        let burn = burn(&Scanner::new(paths.clone()), None, now()).unwrap();
+        let config = Config::default();
+        let report = report(&burn, &env(&paths, &config));
+
+        let mut human = Vec::new();
+        write_report(&mut human, &report, false, Style::plain()).unwrap();
+        assert_eq!(
+            String::from_utf8(human).unwrap(),
+            format!("{}\n", burn.line())
+        );
+
+        let mut json = Vec::new();
+        write_report(&mut json, &report, true, Style::plain()).unwrap();
+        let out = String::from_utf8(json).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["report"], "watch");
+        assert_eq!(v["rows"][0]["project"], "acme-api");
+        assert_eq!(v["rows"][0]["tokens_per_hour"], burn.tokens_per_hour);
+        assert_eq!(v["notes"].as_array().unwrap().len(), 2);
     }
 
     #[test]
