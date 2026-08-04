@@ -35,11 +35,10 @@ body:
     id: what-happened
     attributes:
       label: What happened
-      description: |
-        What did warden do, and what did you expect instead? Note: anything
-        warden cannot derive renders as a dim `–`, never `0`. A figure
-        showing `–` is usually correct behaviour; a figure showing `0` when
-        you expected `–` (or vice versa) is the bug worth reporting.
+      description: >
+        What did warden do, and what did you expect instead? Anything warden
+        cannot derive shows a dim `–`, never `0` — so `–` is usually correct,
+        while `–` and `0` swapped is the bug worth reporting.
     validations:
       required: true
 
@@ -47,7 +46,7 @@ body:
     id: repro
     attributes:
       label: Reproduction
-      description: |
+      description: >
         Exact command, including flags. Reproduce with `--data-dir <tmp>`
         rather than your real store — running warden writes a store even
         though it only reads sources. Prompt text can be sensitive: redact
@@ -60,9 +59,9 @@ body:
     id: doctor
     attributes:
       label: "`warden doctor` output"
-      description: |
-        Output of `warden doctor` (optionally with `--data-dir <tmp>`).
-        This answers most "empty number" reports on its own.
+      description: >
+        Output of `warden doctor` — it resolves most "empty number" reports
+        on its own.
       render: shell
     validations:
       required: true

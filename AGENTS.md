@@ -86,6 +86,9 @@ exactly; the registration steps are easy to miss. What those sections leave impl
   change — if the need is arbitrary grouping, it belongs in `query`.
 - A change to the user-facing surface updates both `README.md` and `ARCHI.md` §8 — the code
   wins if they ever disagree.
+- A new subcommand or report also belongs in the `Area` dropdowns of
+  `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.yml`. Nothing checks those lists
+  against `cli.rs` or `reports::NAMES`, so they drift silently.
 
 ## `specs/`
 

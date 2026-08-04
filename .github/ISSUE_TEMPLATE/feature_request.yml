@@ -13,6 +13,9 @@ body:
     id: area
     attributes:
       label: Area
+      description: >
+        Pick "New named report" only for a brand-new report; use "report" for
+        a change to one that already exists.
       options:
         - New named report
         - report
